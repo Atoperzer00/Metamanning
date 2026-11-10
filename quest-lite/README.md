@@ -23,6 +23,8 @@ The signed-in website adapter uses the visible composer, image file input and Se
 
 ## Build and install
 
+[Download the built 0.2.0 preview APK](../downloads/README.md).
+
 With JDK 17+, Android SDK 35 and Gradle 8.9:
 
 ```sh
