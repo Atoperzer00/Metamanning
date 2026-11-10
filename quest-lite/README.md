@@ -42,3 +42,9 @@ The companion does **not** implement live headset-camera vision or camera captur
 4. Try website dictation, approve microphone, and confirm transcription; repeat after denying permission.
 5. Open Browser and confirm the fallback loads. Test your chosen sign-in provider there if embedded sign-in fails.
 6. Suspend/resume the app and check microphone activity stops when the website releases it; use Android permission settings to revoke access when needed.
+
+## Verification for this first change
+
+- Java source compiled with Eclipse ECJ against Android API 35 signatures and Java 17 (one expected `Activity.onBackPressed` deprecation warning).
+- Android manifest parsed successfully; `git diff --check` passed.
+- The GitHub APK build/lint workflow is included, but no workflow run was available at implementation time. No APK build, Android lint result, sign-in success, or headset test is claimed yet.
