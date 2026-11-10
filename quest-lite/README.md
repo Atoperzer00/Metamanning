@@ -1,50 +1,77 @@
-# Metamanning Lite (experimental)
+# Metamanning Lite — Quest 3 / 3S
 
-A dependency-free Android WebView companion to the imported JarvisVR project for Quest 3/3S. It opens the official ChatGPT website directly, using normal website sign-in and your existing account. No API key, Python services, Unity runtime, model downloads, or injected login scripts are needed for this companion.
+Small native Android companion built alongside the imported JarvisVR Unity project. It uses the official ChatGPT website and your normal account, with no OpenAI API key or separate AI backend. Android platform APIs supply the camera, keyboard and optional speech recognition; the only added runtime library is AndroidX ExifInterface for reliable photo orientation.
+
+## Features and controls
+
+| Feature | Implementation |
+| --- | --- |
+| Passthrough | Place the app's system window in Quest's passthrough environment. Enable passthrough in system UI. |
+| Hand tracking controls | Quest's system hand pointers operate the large native buttons, website and keyboard. Custom immersive gestures remain in the imported Unity client. |
+| Conversation | Official signed-in ChatGPT page, including its normal conversation history and model availability. |
+| Speech-to-text | **Speak** opens Android's speech recognizer and inserts the returned words into the composer for review. If no speech service is installed, use the website's dictation/voice control, with origin-scoped microphone permission handling. |
+| Keyboard | **Keyboard** focuses the website composer and requests the system keyboard; hardware keyboards also work. |
+| Live camera preview | **Camera**, grant Android and headset-camera permissions, choose the exposed camera ID. A native Camera2 preview appears above the conversation. |
+| Camera snapshot | **Snapshot** captures a real JPEG and attaches it to the current conversation. Review and send it yourself. |
+| Sampled live vision | **Live**, then **Start sharing**, sends a camera JPEG plus a brief analysis prompt every 15 seconds, at most 20 successful sends. Frames are skipped while a response or draft is active. **Stop**, navigation, or leaving the app ends sharing. |
+| Photo upload | **Photo** selects an existing local image, downsizes it, and attaches it to the conversation. The website's own upload picker also supports multiple selections. |
+| Browser fallback | **Browser** opens the official website outside the embedded WebView if sign-in or voice is incompatible. Browser and WebView sessions are separate. Native camera/adapter controls operate inside this app only. |
+
+The native chrome uses a dark palette, large rounded controls, a visible live-sharing indicator, and a Lucide icon. [Third-party sources and licenses](THIRD_PARTY.md) document the reused projects.
+
+The signed-in website adapter uses the visible composer, image file input and Send button. It never extracts credentials, accesses private ChatGPT endpoints, bypasses account limits, or sends images without an explicit Live-sharing session. Manual photos and dictation are not auto-submitted. Images are held in memory rather than written to shared storage.
 
 ## Build and install
 
-GitHub Actions → **Quest Lite APK** → download the `metamanning-lite-debug` artifact from the branch's successful run. Unzip it, enable Quest developer mode/USB debugging, and install with:
-
-```sh
-adb install -r app-debug.apk
-```
-
-Open **Metamanning Lite** from Unknown Sources. Alternatively, with JDK 17+, Android SDK 35 and Gradle 8.9 installed:
+With JDK 17+, Android SDK 35 and Gradle 8.9:
 
 ```sh
 gradle -p quest-lite assembleDebug lintDebug
 adb install -r quest-lite/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-This deliberately uses the platform WebView with zero app libraries. `targetSdk 32` retains legacy Quest window compatibility; this sideload prototype must be updated and tested against current target requirements before store distribution.
+Alternatively, a successful **Quest Lite APK** GitHub Actions run provides the `metamanning-lite-debug` artifact. Enable Quest developer mode, allow USB debugging, and open **Metamanning Lite** from Unknown Sources after installation.
 
-## Account and controls
+This sideload prototype compiles and targets Android API 35. Store distribution and Quest OS compatibility still require device validation. Camera2 headset access requires a supported Horizon OS version and runtime camera permissions; no synthetic images are used if access fails.
 
-- Sign into the official ChatGPT page. Cookies persist in this app's private WebView storage. Browser sessions and WebView sessions are separate: the Browser fallback may require its own sign-in.
-- **Back**, **ChatGPT**, and **Browser** are large native toolbar controls. Browser opens the official site in the system browser, useful if OAuth, Cloudflare, or voice is incompatible with the headset's WebView. External-provider OAuth does not return a signed-in browser session to the WebView automatically.
-- Use the Quest system keyboard or a physical keyboard in the website composer.
-- Use the website's attachment control to choose images from Android's document picker. A missing picker produces a visible fallback message. Copy photos to the headset first. No broad storage permission is requested.
-- Use the website's voice/dictation control if available. Audio capture is granted only to the HTTPS `chatgpt.com` origin after Android microphone approval. Availability still depends on ChatGPT and the installed WebView; STT is not independently implemented here.
-- Quest provides the 2D window's hand-pointer interaction and its placement in the system environment. Enable passthrough in Quest's system UI. This companion does not create an immersive world-anchored panel or implement custom hand gestures.
+## Practical limits
 
-## Current limits — check before relying on it
+This is an experimental implementation, not a headset-validated release. Signed-in authentication, camera enumeration, Android speech recognition, system hand-pointer interaction, and Quest window behavior must be verified on a physical Quest. Some sign-in providers reject embedded WebViews; the Browser fallback does not share cookies back into this app.
 
-**This is a first implementation, not a headset-validated release.** Website sign-in, voice, photo selection, multitasking placement, and hand pointers require a physical Quest test. If website sign-in is blocked in embedded browsers, use the Browser button; no login restrictions are bypassed.
+**Live vision is periodic image messages, not continuous video or ChatGPT's native live-video mode.** It consumes the normal image/message allowance of your account. The website adapter depends on the current ChatGPT DOM and may stop working if its composer or attachment UI changes. If upload evidence is missing or submission is disabled, it waits and then stops with a visible status rather than falling back to text-only automatic requests. If there is no compatible input, open the website attachment menu or use its native picker.
 
-The companion does **not** implement live headset-camera vision or camera capture. Showing passthrough behind a system window does not expose camera frames to ChatGPT. Upstream's native camera code remains in `unity-client/Assets/JarvisVR/Perception/`; its existing vision streaming targets the upstream backend, not your ChatGPT website session. Connecting those systems requires further implementation and device validation. Photo selection works through the official website input; there is no hidden upload or automatic live stream.
+The 2D companion uses Quest's existing passthrough/window/hand interfaces. It does not implement a world-anchored immersive chat panel. The imported `unity-client/` preserves JarvisVR's native immersive passthrough, hand and vision work, but its backend vision stream is separate from this account-based companion.
 
-## Device smoke check
+## Verification
 
-1. Install, open, sign in; restart and confirm the account session survives.
-2. Place the window in passthrough; use hand pointers to focus the composer, type and send a message.
-3. Attach a local image, then cancel a second selection; verify neither operation leaves a stuck picker.
-4. Try website dictation, approve microphone, and confirm transcription; repeat after denying permission.
-5. Open Browser and confirm the fallback loads. Test your chosen sign-in provider there if embedded sign-in fails.
-6. Suspend/resume the app and check microphone activity stops when the website releases it; use Android permission settings to revoke access when needed.
+Run the dependency-free adapter state tests:
 
-## Verification for this first change
+```sh
+node --test quest-lite/tests/chatgpt-adapter.test.cjs
+```
 
-- Java source compiled with Eclipse ECJ against Android API 35 signatures and Java 17 (one expected `Activity.onBackPressed` deprecation warning).
-- Android manifest parsed successfully; `git diff --check` passed.
-- The GitHub APK build/lint workflow is included, but no workflow run was available at implementation time. No APK build, Android lint result, sign-in success, or headset test is claimed yet.
+The Chromium integration check uses Playwright from the development environment (not shipped in the APK):
+
+```sh
+node quest-lite/tests/browser-check.cjs
+```
+
+It tests a controlled page with real browser file inputs, DataTransfer and contenteditable events. It is not a test against a signed-in ChatGPT account. See the PR for current build/lint results.
+
+## Physical Quest smoke check
+
+1. Install, sign in, restart and confirm the account session persists; test the Browser fallback separately.
+2. Enable system passthrough and hand tracking; move the window, select Keyboard, enter and send a message.
+3. Select Speak, dictate, review the resulting draft and send. If speech recognition is absent, try the website microphone control and both grant/deny paths.
+4. Select Camera, grant permissions and choose the left/right exposed camera; verify that the preview is a real current view. Press Snapshot; inspect the attached image before sending.
+5. Select Photo and attach a local image. Cancel another picker and confirm the previous conversation remains usable.
+6. Start Live in an empty composer. Confirm an image plus analysis prompt is sent, an answer arrives, and the visible LIVE status updates. Type a draft and confirm subsequent frames are skipped. Press Stop and confirm no further messages are sent.
+7. Start Live again, then navigate or leave the app. Confirm camera activity and automatic sharing stop. Revoke camera permission and verify the failure is visible with no synthetic substitute.
+
+## Build receipt (0.2.0)
+
+- `assembleDebug` and `lintDebug`: passed with JDK 17 / Gradle 8.9 / Android API 35. Lint reports zero errors and two warnings (a newer ExifInterface version is available, and JavaScript is enabled for the ChatGPT website).
+- Ten adapter behavior tests: passed. Chromium integration check: passed on a controlled page, including real image File/DataTransfer and composer submission.
+- APK signature verification: passed (v2 debug signature). APK is approximately 2.3 MB.
+- Physical Quest hardware and a signed-in ChatGPT account were not available for validation. Do not treat compilation or controlled-page checks as proof of headset-camera access or current ChatGPT DOM compatibility.
+- This is a debug-signed sideload build. Future builds signed with a different debug key require uninstalling the earlier app first; uninstalling clears its local sign-in session. Keep a stable private signing key for regular distribution.

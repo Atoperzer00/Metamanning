@@ -20,6 +20,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test quest-lite/tests/chatgpt-adapter.test.cjs
       - run: gradle --no-daemon -p quest-lite assembleDebug lintDebug
       - uses: actions/upload-artifact@v4
         with:

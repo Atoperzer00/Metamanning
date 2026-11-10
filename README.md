@@ -2,7 +2,7 @@
 
 Based on [JarvisVR](https://github.com/sumitaich1998/jarvisvr), imported with its Git history and MIT license. Upstream's original documentation follows below.
 
-**Start here:** [Quest Lite setup and limitations](quest-lite/README.md). The small native Android companion opens the official ChatGPT website with your own account; it needs no API key or Jarvis backend. The full upstream Unity passthrough/hand/camera implementation remains in `unity-client/` for the immersive work.
+**Start here:** [Quest Lite features and setup](quest-lite/README.md). The lightweight Android companion uses your signed-in ChatGPT account, Quest system passthrough and hand pointers, keyboard, Android dictation, native camera preview/snapshots, photo upload, and opt-in sampled live vision. It needs no API key or Jarvis backend. Live vision sends periodic image messages through an experimental website adapter; headset and signed-in website validation are still required. The full upstream Unity implementation remains in `unity-client/` for immersive work.
 
 ---
 
