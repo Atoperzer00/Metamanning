@@ -1,0 +1,12 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.metamanning.questlite'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.metamanning.questlite'
+        minSdk 29
+        targetSdk 32
+        versionCode 1
+        versionName '0.1.0'
+    }
+}

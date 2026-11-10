@@ -67,3 +67,7 @@ models/
 *.onnx
 *.gguf
 !**/registry.json
+
+# Lightweight Android companion
+.gradle/
+local.properties

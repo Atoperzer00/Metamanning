@@ -1,3 +1,11 @@
+# Metamanning — lightweight Quest companion
+
+Based on [JarvisVR](https://github.com/sumitaich1998/jarvisvr), imported with its Git history and MIT license. Upstream's original documentation follows below.
+
+**Start here:** [Quest Lite setup and limitations](quest-lite/README.md). The small native Android companion opens the official ChatGPT website with your own account; it needs no API key or Jarvis backend. The full upstream Unity passthrough/hand/camera implementation remains in `unity-client/` for the immersive work.
+
+---
+
 
 
 
