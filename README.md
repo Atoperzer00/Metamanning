@@ -1,6 +1,6 @@
 # Luma — Your meta assistant
 
-[Download the latest spatial APK: 0.5.0 development build](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/spatial-room-workspace/downloads/Luma-Spatial-0.5.0-dev.apk)
+[Download the latest spatial APK: 0.5.3 development build](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/luma-roomless-startup/downloads/Luma-Spatial-0.5.3-dev.apk)
 
 Assistant, Browser and HTML Widget panels in a room-based Quest 3 workspace. Use your own ChatGPT account; account mode requires no API key or separate AI backend. Widgets can come from an AI reply, a built-in template, pasted HTML or an imported file.
 
@@ -9,6 +9,7 @@ Assistant, Browser and HTML Widget panels in a room-based Quest 3 workspace. Use
 - In-workspace HTTPS browser with navigation, bookmarks, find, uploads and reviewed page-to-assistant drafts.
 - Widget editor, HTML import/export, local state, optional HTTPS networking, and Clock/Notes/Checklist/Focus Timer/Calculator templates.
 - Existing keyboard, dictation, camera snapshot, photo upload and configurable sampled-live-vision flows retained.
+- Workspace menu and Assistant open before room recognition; Luma Chat provides a standard-panel fallback. The Voice control attempts to open the signed-in ChatGPT website's voice UI when available.
 
 **Development build: not certified as finished.** Automated checks pass; physical Quest 3, signed-in account, hands, camera, voice and real room relocalization still require on-device acceptance. Live vision uses periodic images, not continuous native video.
 

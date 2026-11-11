@@ -1,20 +1,23 @@
-# Latest Quest 3 download
+# Latest Quest 3 development build
 
-[Download Luma Spatial 0.5.0 development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/spatial-room-workspace/downloads/Luma-Spatial-0.5.0-dev.apk)
+[Download Luma Spatial 0.5.3 development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/luma-roomless-startup/downloads/Luma-Spatial-0.5.3-dev.apk)
 
-Luma — Your meta assistant. Includes the existing spatial workspace, browser, widgets, voice and camera features, plus a configurable assistant role briefing. Physical Quest and signed-in account acceptance remain pending.
+This build opens the redesigned workspace menu and an Assistant panel without waiting for room recognition. It also includes a separate **Luma Chat** standard-panel launcher and an experimental **Voice** button for ChatGPT's signed-in website voice control. **Speak** remains reviewed dictation. Physical Quest rendering, sign-in and voice acceptance remain pending.
 
-Save to your **computer’s Downloads folder**, then install with Meta Quest Developer Hub. Open **Luma** under Unknown Sources. Copying to headset storage does not install it.
+The 0.5.3 development APK has a different debug signing certificate from 0.5.0. Since you approved a fresh install, export any useful room layouts first, then uninstall the old package and install this APK from your computer. Uninstalling clears Luma's local layouts and embedded sign-in, but not your ChatGPT account conversations.
 
 ```sh
-adb install -r Luma-Spatial-0.5.0-dev.apk
+adb uninstall com.metamanning.spatial
+adb install Luma-Spatial-0.5.3-dev.apk
 ```
 
-The package ID and signing certificate are unchanged for updates from Metamanning 0.4. Existing room layouts, profiles and widget state retain their identifiers. Export important layouts before updating. See [Luma guide](../docs/LUMA_05_GUIDE.md) and [checksums](SHA256SUMS).
+You can also install the downloaded APK with Meta Quest Developer Hub. Complete the Quest Guardian boundary setup on the headset, then open **Luma** under Unknown Sources. Copying an APK to headset storage does not install it. See [checksums](SHA256SUMS). This is a development branch artifact, not a certified release.
 
 ---
 
 # Earlier Metamanning downloads
+
+[Luma Spatial 0.5.0 development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/spatial-room-workspace/downloads/Luma-Spatial-0.5.0-dev.apk) uses the earlier signing certificate and remains available for reference.
 
 [Download Metamanning Spatial 0.4.0 development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/spatial-room-workspace/downloads/Metamanning-Spatial-0.4.0-dev.apk)
 
