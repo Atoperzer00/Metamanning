@@ -1,0 +1,9 @@
+<!-- Adapted from Lucide scan-eye (ISC); see assets/licenses/Lucide.txt. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="40dp" android:height="40dp" android:viewportWidth="32" android:viewportHeight="32">
+    <path android:fillColor="#12382F" android:pathData="M8,0H24Q32,0 32,8V24Q32,32 24,32H8Q0,32 0,24V8Q0,0 8,0" />
+    <group android:translateX="4" android:translateY="4">
+        <path android:fillColor="@android:color/transparent" android:strokeColor="#75F0CA" android:strokeWidth="1.6" android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M3,7V5a2,2 0,0 1,2 -2h2M17,3h2a2,2 0,0 1,2 2v2M21,17v2a2,2 0,0 1,-2 2h-2M7,21H5a2,2 0,0 1,-2 -2v-2M18.944,12.33a1,1 0,0 0,0 -0.66a7.5,7.5 0,0 0,-13.888 0a1,1 0,0 0,0 0.66a7.5,7.5 0,0 0,13.888 0" />
+        <path android:fillColor="#75F0CA" android:pathData="M11,12a1,1 0,1 0,2 0a1,1 0,1 0,-2 0" />
+    </group>
+</vector>

@@ -1,0 +1,13 @@
+<resources>
+    <style name="MetamanningTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#63E6C1</item>
+        <item name="android:windowBackground">#0B1019</item>
+        <item name="android:statusBarColor">#0B1019</item>
+        <item name="android:navigationBarColor">#0B1019</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+    <string name="initial_status">Sign into ChatGPT. Camera sharing is off.</string>
+    <string name="app_brand">metamanning</string>
+    <string name="app_subtitle">ChatGPT · your account · Quest</string>
+</resources>
