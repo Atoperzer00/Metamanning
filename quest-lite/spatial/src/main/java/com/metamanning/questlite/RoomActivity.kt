@@ -439,7 +439,7 @@ class RoomActivity : AppSystemActivity() {
     }
     private fun exportLayout() {
         if (room == null) { setMessage("Recognize a room before exporting its layout."); return }
-        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json").putExtra(Intent.EXTRA_TITLE, "metamanning-room.json"), EXPORT)
+        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json").putExtra(Intent.EXTRA_TITLE, "luma-room.json"), EXPORT)
     }
     private fun importLayout() {
         if (room == null) { setMessage("Recognize the destination room first."); return }

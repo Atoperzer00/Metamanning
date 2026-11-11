@@ -28,7 +28,9 @@ public final class WidgetActivity extends WorkspacePanelActivity {
         WebSettings settings = web.getSettings(); settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(false);
         settings.setAllowFileAccess(false); settings.setAllowContentAccess(false); settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        web.addJavascriptInterface(new StateBridge(), "MetamanningState");
+        StateBridge state = new StateBridge();
+        web.addJavascriptInterface(state, "LumaState");
+        web.addJavascriptInterface(state, "MetamanningState");
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if ("about:srcdoc".equals(request.getUrl().toString()) || "about:blank".equals(request.getUrl().toString())) return false;
@@ -110,7 +112,7 @@ public final class WidgetActivity extends WorkspacePanelActivity {
     }
     private void chooseDocument(boolean export) {
         Intent intent = new Intent(export ? Intent.ACTION_CREATE_DOCUMENT : Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(export ? "text/html" : "*/*");
-        if (export) intent.putExtra(Intent.EXTRA_TITLE, "metamanning-widget.html");
+        if (export) intent.putExtra(Intent.EXTRA_TITLE, "luma-widget.html");
         else intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"text/html", "text/plain", "application/xhtml+xml"});
         try { startActivityForResult(intent, export ? EXPORT_HTML : IMPORT_HTML); } catch (android.content.ActivityNotFoundException e) { message("No document picker is available."); }
     }

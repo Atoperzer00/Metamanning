@@ -1,6 +1,7 @@
 /* Account UI adapter. No credentials or private endpoints are accessed. */
 (() => {
   if (location.origin !== 'https://chatgpt.com') return;
+  if (typeof window.metamanning?.dispose === 'function') window.metamanning.dispose();
   const visible = element => !!element && element.getClientRects().length > 0;
   const editor = () => [...document.querySelectorAll('#prompt-textarea, #mobile-composer-prompt, textarea[aria-label="Chat with ChatGPT"], [contenteditable="true"][role="textbox"]')].find(visible);
   const formFor = () => editor()?.closest('form');
@@ -11,6 +12,47 @@
   const busy = () => !!document.querySelector('[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]');
   const text = () => (editor()?.value ?? editor()?.innerText ?? '').trim();
   let pending = null;
+  let roleText = '', roleEnabled = false, roleMarker = '';
+  const briefed = new Set();
+  const conversationKey = () => location.pathname || '/';
+  function hasRoleInConversation() {
+    if (briefed.has(conversationKey())) return true;
+    const messages = [...document.querySelectorAll('[data-message-author-role="user"]')];
+    if (roleMarker && messages.some(message => (message.innerText || message.textContent || '').includes(roleMarker))) {
+      briefed.add(conversationKey());
+      if (briefed.size > 128) briefed.delete(briefed.values().next().value);
+      return true;
+    }
+    return false;
+  }
+  function roleNeeded() { return roleEnabled && !!roleText && !hasRoleInConversation(); }
+  function rolePrompt(value) {
+    return roleMarker + '\n' + roleText + '\n[/LUMA_ROLE_V1]\n\nUser request:\n' + (value || 'Help with the attached image.');
+  }
+  function prepareRoleDraft(force = false) {
+    if (!roleText || (!roleEnabled && !force)) return 'role-disabled';
+    if (!editor()) return 'missing-composer';
+    if (pending || busy()) return 'busy';
+    if (text().includes(roleMarker)) return 'already-prepared';
+    if (!force && hasRoleInConversation()) return 'already-briefed';
+    const value = text();
+    const attachment = formFor()?.querySelector('img, [data-testid*="attachment"]');
+    if (!value && !attachment && !force) return 'empty';
+    const result = write(rolePrompt(value || (force ? 'Please acknowledge this role and ask what you can help with.' : '')));
+    if (result === 'ok') { if (typeof console !== 'undefined') console.info('LUMA_ROLE_PREPARED'); return 'prepared'; }
+    return result;
+  }
+  function interceptSend(event) {
+    const button = event.target?.closest?.('[data-testid="send-button"], button[aria-label="Send message"], button[aria-label="Send prompt"]');
+    if (!button || button.disabled || !roleEnabled) return;
+    if (prepareRoleDraft() === 'prepared') { event.preventDefault(); event.stopImmediatePropagation(); }
+  }
+  function interceptEnter(event) {
+    const field = editor();
+    if (!field || !roleEnabled || event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
+    if (event.target !== field && !field.contains(event.target)) return;
+    if (prepareRoleDraft() === 'prepared') { event.preventDefault(); event.stopImmediatePropagation(); }
+  }
   function write(value) {
     const field = editor();
     if (!field) return 'missing-composer';
@@ -25,6 +67,21 @@
     return 'ok';
   }
   window.metamanning = {
+    configureRole(value, enabled) {
+      if (typeof value !== 'string' || value.length > 12000) return 'role-too-long';
+      const changed = value !== roleText;
+      roleText = value.trim(); roleEnabled = !!enabled && !!roleText;
+      let hash = 2166136261;
+      for (let index = 0; index < roleText.length; index++) hash = Math.imul(hash ^ roleText.charCodeAt(index), 16777619) >>> 0;
+      roleMarker = '[LUMA_ROLE_V1_' + hash.toString(16) + ']';
+      if (changed) briefed.clear();
+      return roleEnabled ? 'role-enabled' : 'role-disabled';
+    },
+    prepareRoleDraft(force = false) { return prepareRoleDraft(force); },
+    dispose() {
+      document.removeEventListener('click', interceptSend, true);
+      document.removeEventListener('keydown', interceptEnter, true);
+    },
     draft(value) {
       if (!editor()) return 'missing-composer';
       if (pending || busy() || text()) return 'draft-present';
@@ -85,6 +142,7 @@
       if (!form.querySelector('img, [data-testid*="attachment"]') || form.querySelector('[role="progressbar"]')) return 'waiting';
       if (!pending.prompted) {
         if (text()) { pending = null; return 'draft-present'; }
+        if (roleNeeded() && !pending.prompt.includes(roleMarker)) pending.prompt = rolePrompt(pending.prompt);
         write(pending.prompt);
         pending.prompted = true;
         return 'waiting';
@@ -96,4 +154,7 @@
     },
     cancel() { pending = null; return 'stopped'; }
   };
+  window.luma = window.metamanning;
+  document.addEventListener('click', interceptSend, true);
+  document.addEventListener('keydown', interceptEnter, true);
 })();

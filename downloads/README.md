@@ -1,5 +1,21 @@
 # Latest Quest 3 download
 
+[Download Luma Spatial 0.5.0 development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/spatial-room-workspace/downloads/Luma-Spatial-0.5.0-dev.apk)
+
+Luma — Your meta assistant. Includes the existing spatial workspace, browser, widgets, voice and camera features, plus a configurable assistant role briefing. Physical Quest and signed-in account acceptance remain pending.
+
+Save to your **computer’s Downloads folder**, then install with Meta Quest Developer Hub. Open **Luma** under Unknown Sources. Copying to headset storage does not install it.
+
+```sh
+adb install -r Luma-Spatial-0.5.0-dev.apk
+```
+
+The package ID and signing certificate are unchanged for updates from Metamanning 0.4. Existing room layouts, profiles and widget state retain their identifiers. Export important layouts before updating. See [Luma guide](../docs/LUMA_05_GUIDE.md) and [checksums](SHA256SUMS).
+
+---
+
+# Earlier Metamanning downloads
+
 [Download Metamanning Spatial 0.4.0 development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/spatial-room-workspace/downloads/Metamanning-Spatial-0.4.0-dev.apk)
 
 This is the latest browser/widgets upgrade. It includes Assistant, Browser and HTML Widget panels, up to six spatial windows, assistant tools, widget templates and closed-window recovery. It is a development build; physical Quest and signed-in account verification remain pending.

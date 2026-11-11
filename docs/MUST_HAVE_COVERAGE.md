@@ -20,3 +20,7 @@
 | More assistant tooling | Widget prompt drafts, latest-reply HTML extraction, browser context handoff | Adapter extraction and draft-preservation tests pass; actual signed-in DOM and cross-panel handoff require device/account testing |
 
 The full acceptance sequence is in [QUEST_RELEASE_GATES.md](QUEST_RELEASE_GATES.md). The installation steps and new workflows are in [METAMANNING_04_GUIDE.md](METAMANNING_04_GUIDE.md).
+
+## Luma 0.5 identity update
+
+The launcher and native shell are Luma — Your meta assistant. A configurable per-window role briefing is prepared for review in conversations; it defines identity and available capabilities without claiming native tool access. Controlled role tests pass; real signed-in submission remains a device/account acceptance gate. See [Luma guide](LUMA_05_GUIDE.md).

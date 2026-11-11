@@ -1,9 +1,10 @@
-# Metamanning — Quest 3 spatial assistant workspace
+# Luma — Your meta assistant
 
-[Download the latest spatial APK: 0.4.0 development build](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/spatial-room-workspace/downloads/Metamanning-Spatial-0.4.0-dev.apk)
+[Download the latest spatial APK: 0.5.0 development build](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/spatial-room-workspace/downloads/Luma-Spatial-0.5.0-dev.apk)
 
 Assistant, Browser and HTML Widget panels in a room-based Quest 3 workspace. Use your own ChatGPT account; account mode requires no API key or separate AI backend. Widgets can come from an AI reply, a built-in template, pasted HTML or an imported file.
 
+- Luma role briefing, with per-window preferences, visible draft review and honest capability boundaries.
 - Up to six windows, with placement presets, mapped-surface placement, resize, lock, follow, focus, hide/show, recall and closed-window recovery.
 - In-workspace HTTPS browser with navigation, bookmarks, find, uploads and reviewed page-to-assistant drafts.
 - Widget editor, HTML import/export, local state, optional HTTPS networking, and Clock/Notes/Checklist/Focus Timer/Calculator templates.
@@ -11,7 +12,7 @@ Assistant, Browser and HTML Widget panels in a room-based Quest 3 workspace. Use
 
 **Development build: not certified as finished.** Automated checks pass; physical Quest 3, signed-in account, hands, camera, voice and real room relocalization still require on-device acceptance. Live vision uses periodic images, not continuous native video.
 
-[User guide](docs/METAMANNING_04_GUIDE.md) · [Must-have audit](docs/MUST_HAVE_COVERAGE.md) · [0.4 verification](docs/VERIFICATION_04.md) · [Downloads](downloads/README.md)
+[Luma role and upgrade guide](docs/LUMA_05_GUIDE.md) · [Must-have audit](docs/MUST_HAVE_COVERAGE.md) · [0.5 verification](docs/VERIFICATION_05.md) · [Downloads](downloads/README.md)
 
 Based on [JarvisVR](https://github.com/sumitaich1998/jarvisvr), with its history and license preserved. The native account-based implementation is in `quest-lite/spatial/`; the original Unity/backend foundation remains available. Upstream's original documentation follows.
 

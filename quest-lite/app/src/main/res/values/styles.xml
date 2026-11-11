@@ -8,6 +8,6 @@
         <item name="android:windowLightStatusBar">false</item>
     </style>
     <string name="initial_status">Sign into ChatGPT. Camera sharing is off.</string>
-    <string name="app_brand">metamanning</string>
-    <string name="app_subtitle">ChatGPT · your account · Quest</string>
+    <string name="app_brand">Luma</string>
+    <string name="app_subtitle">Your meta assistant</string>
 </resources>

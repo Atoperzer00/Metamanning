@@ -56,6 +56,9 @@ public final class MainActivity extends Activity {
     private TextureView preview;
     private TextView status, windowTitle;
     private String adapter;
+    private String roleDefault = "You are Luma, the user's meta assistant in a Meta Quest 3 spatial workspace. Help with the provided conversation, images and page excerpts. Be honest about your capabilities; native window controls are user-operated. ChatGPT supplies the underlying conversation.";
+    private String roleExtra = "";
+    private boolean roleEnabled = true;
     private boolean live, staged, destroyed;
     private int capturePurpose, sentFrames, liveGeneration;
     private long captureDeadline;
@@ -115,6 +118,15 @@ public final class MainActivity extends Activity {
         frameLimit = Math.max(1, Math.min(100, options.getInt("limit", 20)));
         textZoom = Math.max(80, Math.min(160, options.getInt("zoom", 100)));
         livePrompt = options.getString("prompt", livePrompt);
+        roleEnabled = options.getBoolean("role_enabled", true);
+        roleExtra = options.getString("role_extra", "");
+        if (roleExtra == null) roleExtra = "";
+        if (roleExtra.length() > 2000) roleExtra = roleExtra.substring(0, 2000);
+        try (InputStream source = getAssets().open("luma-role.txt")) {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(); byte[] block = new byte[4096]; int count;
+            while ((count = source.read(block)) != -1) bytes.write(block, 0, count);
+            roleDefault = new String(bytes.toByteArray(), StandardCharsets.UTF_8).trim();
+        } catch (Exception ignored) { /* retain a truthful minimal role if the asset is unavailable */ }
         if (getIntent().getBooleanExtra("spatial_panel", false)) {
             panelHidden = getIntent().getBooleanExtra("initial_hidden", false);
             if (android.os.Build.VERSION.SDK_INT >= 33)
@@ -146,6 +158,7 @@ public final class MainActivity extends Activity {
         LinearLayout inputBar = new LinearLayout(this);
         addButton(inputBar, "Keyboard", this::keyboard);
         addButton(inputBar, "Speak", this::dictate);
+        addButton(inputBar, "Role", this::roleOptions);
         addButton(inputBar, "Photo", this::pickPhoto);
         if (getIntent().getBooleanExtra("spatial_panel", false)) addButton(inputBar, "Tools", this::tools);
         layout.addView(inputBar);
@@ -208,7 +221,7 @@ public final class MainActivity extends Activity {
                 }
             }
             @Override public void onPageFinished(WebView view, String url) {
-                if (isChatPage()) web.evaluateJavascript(adapter, null);
+                if (isChatPage()) web.evaluateJavascript(adapter, result -> configureRole(null));
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
@@ -218,6 +231,12 @@ public final class MainActivity extends Activity {
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage message) {
+                if ("LUMA_ROLE_PREPARED".equals(message.message()) && isChatPage()) {
+                    runOnUiThread(() -> showStatus("Luma role added to your draft. Review it, then press Send again.")); return true;
+                }
+                return false;
+            }
             @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 finishPhoto(null);
                 photoResult = callback;
@@ -437,6 +456,43 @@ public final class MainActivity extends Activity {
         if (url != null && officialUrl(url)) intent.putExtra("url", url);
         sendBroadcast(intent);
     }
+    private String roleBriefing() {
+        return roleDefault + (roleExtra.trim().isEmpty() ? "" : "\n\nUser's additional focus and preferences:\n" + roleExtra.trim());
+    }
+    private void configureRole(Runnable after) {
+        if (destroyed || !isChatPage()) return;
+        evaluate("configureRole(" + JSONObject.quote(roleBriefing()) + "," + roleEnabled + ")", result -> { if (after != null) after.run(); });
+    }
+    private void roleOptions() {
+        if (live) stopLive();
+        LinearLayout fields = new LinearLayout(this); fields.setOrientation(LinearLayout.VERTICAL); fields.setPadding(24, 12, 24, 12);
+        android.widget.CheckBox enabled = new android.widget.CheckBox(this); enabled.setText("Use Luma's role briefing in conversations"); enabled.setChecked(roleEnabled); fields.addView(enabled);
+        TextView explanation = new TextView(this); explanation.setText("Luma's briefing is added visibly to a draft. Review it and press Send again. Existing chat history and account settings stay intact."); fields.addView(explanation);
+        Button previewRole = new Button(this); previewRole.setText("Read Luma's full role"); fields.addView(previewRole);
+        TextView label = new TextView(this); label.setText("Optional focus or preferences for this assistant window"); fields.addView(label);
+        EditText extra = new EditText(this); extra.setMinLines(3); extra.setMaxLines(6); extra.setText(roleExtra);
+        extra.setHint("For example: help me code, research, or study. Keep answers short.");
+        extra.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(2000)}); fields.addView(extra);
+        previewRole.setOnClickListener(view -> {
+            TextView profile = new TextView(this); profile.setText(roleDefault + (extra.getText().toString().trim().isEmpty() ? "" : "\n\nUser's additional focus and preferences:\n" + extra.getText().toString().trim()));
+            profile.setTextIsSelectable(true); profile.setPadding(24, 12, 24, 12);
+            ScrollView scroll = new ScrollView(this); scroll.addView(profile);
+            new AlertDialog.Builder(this).setTitle("Luma — Your meta assistant").setView(scroll).setPositiveButton("Done", null).show();
+        });
+        ScrollView scroll = new ScrollView(this); scroll.addView(fields);
+        Runnable save = () -> {
+            roleEnabled = enabled.isChecked(); roleExtra = extra.getText().toString().trim();
+            accountOptions().edit().putBoolean("role_enabled", roleEnabled).putString("role_extra", roleExtra).apply();
+        };
+        new AlertDialog.Builder(this).setTitle("Luma role").setView(scroll).setPositiveButton("Save", (dialog, which) -> {
+            save.run(); configureRole(null); showStatus(roleEnabled ? "Luma role is enabled. A conversation without this briefing will prepare it for review before sending." : "Automatic role briefing is off. You can attach it manually from Role.");
+        }).setNeutralButton("Attach to draft", (dialog, which) -> {
+            save.run(); configureRole(() -> evaluate("prepareRoleDraft(true)", result -> {
+                if ("prepared".equals(result) || "already-prepared".equals(result)) showStatus("Luma's role is in the draft. Review it, then press Send.");
+                else showStatus("The role could not be attached yet: " + result);
+            }));
+        }).setNegativeButton("Cancel", null).show();
+    }
     private void tools() {
         String[] choices = {"Open workspace browser", "New HTML widget", "Ask AI to build a widget", "Create widget from latest AI reply", "Open ChatGPT in Quest Browser"};
         new AlertDialog.Builder(this).setTitle("Assistant tools").setItems(choices, (dialog, which) -> {
@@ -460,8 +516,8 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("What should your widget do?").setView(description).setPositiveButton("Create draft", (dialog, which) -> {
             String request = description.getText().toString().trim();
             if (request.isEmpty()) return;
-            offerDraft("Build a Metamanning HTML widget for: " + request +
-                "\nReturn one self-contained fenced html code block with inline CSS and JavaScript. Use a responsive dark design and large touch targets. No remote resources, fetch, eval, popups or external frameworks. The widget runs in an opaque sandboxed iframe with scripts enabled. Optional local persistence: window.metamanning.loadState() returns an object; window.metamanning.saveState(object) saves up to 32 KB. It has no camera, microphone or ChatGPT-account access. Use DOM APIs safely, preserve existing saved state, and provide readable controls. Do not send anything automatically.");
+            offerDraft("Build a Luma HTML widget for: " + request +
+                "\nReturn one self-contained fenced html code block with inline CSS and JavaScript. Use a responsive dark design and large touch targets. No remote resources, fetch, eval, popups or external frameworks. The widget runs in an opaque sandboxed iframe with scripts enabled. Optional local persistence: window.luma.loadState() returns an object; window.luma.saveState(object) saves up to 32 KB. It has no camera, microphone or ChatGPT-account access. Use DOM APIs safely, preserve existing saved state, and provide readable controls. Do not send anything automatically.");
         }).setNegativeButton("Cancel", null).show();
     }
     private void offerDraft(String prompt) {

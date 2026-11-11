@@ -15,7 +15,7 @@
     <uses-permission android:name="horizonos.permission.HEADSET_CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
-    <application android:label="Metamanning Spatial — development" android:theme="@style/MetamanningTheme"
+    <application android:label="Luma" android:theme="@style/MetamanningTheme"
         android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@drawable/ic_metamanning" android:usesCleartextTraffic="false">
         <meta-data android:name="com.oculus.supportedDevices" android:value="quest3" />

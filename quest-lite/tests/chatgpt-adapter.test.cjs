@@ -16,8 +16,8 @@ function page(origin = 'https://chatgpt.com') {
     getClientRects() {return [{}];}, focus() {}, dispatchEvent() {}, closest() {return form;}};
   const input = {accept: 'image/*', dispatchEvent() {state.changes++;}};
   const context = {window: {}, location: {origin}, Date: {now: () => state.now},
-    document: {querySelector(selector) {return selector === '#prompt-textarea' ? field : state.busy ? {} : null;},
-      querySelectorAll(selector) {return selector === 'button, a' ? (state.login ? [{innerText:'Log in', getClientRects(){return [{}];}, closest(){return null;}}] : []) : selector.includes('input[type') ? [input] : [field];}},
+    document: {addEventListener() {}, removeEventListener() {}, querySelector(selector) {return selector === '#prompt-textarea' ? field : state.busy ? {} : null;},
+      querySelectorAll(selector) {return selector === '[data-message-author-role="user"]' ? (state.userRole ? [{innerText:state.userRole}] : []) : selector === 'button, a' ? (state.login ? [{innerText:'Log in', getClientRects(){return [{}];}, closest(){return null;}}] : []) : selector.includes('input[type') ? [input] : [field];}},
     File: class {}, DataTransfer: class {constructor() {this.items = {add() {}}; this.files = []; }},
     Event: class {}, InputEvent: class {}, atob: x => Buffer.from(x, 'base64').toString('binary')};
   vm.runInNewContext(code, context);
@@ -108,4 +108,27 @@ test('oversized UTF-8 widget code is rejected instead of silently truncated', ()
   const {adapter,context}=page();context.TextEncoder=TextEncoder;
   context.document.querySelectorAll=()=>[{querySelectorAll(){return [{className:'language-html',textContent:'<div>'+ '🧩'.repeat(40000)+'</div>'}];}}];
   assert.equal(adapter.latestHtml(),'widget-too-large');
+});
+
+test('Luma role preserves drafts, requires review and deduplicates accepted briefing', () => {
+  const {adapter,state}=page(); adapter.configureRole('You are Luma, your meta assistant.',true);
+  state.draft='Help with my room'; assert.equal(adapter.prepareRoleDraft(),'prepared');
+  assert.match(state.draft,/You are Luma/); assert.match(state.draft,/Help with my room$/);
+  assert.equal(state.sent,0); assert.equal(adapter.prepareRoleDraft(),'already-prepared');
+  state.userRole=state.draft; state.draft='Next question';
+  assert.equal(adapter.prepareRoleDraft(),'already-briefed'); assert.equal(state.draft,'Next question');
+  adapter.configureRole('You are Luma. Focus on accessibility.',true);
+  assert.equal(adapter.prepareRoleDraft(),'prepared'); assert.match(state.draft,/accessibility/);
+});
+test('role can be disabled or attached manually without sending', () => {
+  const {adapter,state}=page(); adapter.configureRole('You are Luma.',false); state.draft='Keep this';
+  assert.equal(adapter.prepareRoleDraft(),'role-disabled'); assert.equal(state.draft,'Keep this');
+  assert.equal(adapter.prepareRoleDraft(true),'prepared'); assert.equal(state.sent,0);
+});
+test('authorized live snapshot includes Luma role and original question exactly once', () => {
+  const {adapter,state}=page(); adapter.configureRole('You are Luma.',true);
+  adapter.attach('eA==',true,'Read this label'); state.now=4000; state.image=true;
+  assert.equal(adapter.sendPending(),'waiting'); assert.match(state.draft,/You are Luma/);
+  assert.match(state.draft,/Read this label$/); assert.equal(adapter.sendPending(),'sent');
+  assert.equal(adapter.sendPending(),'none'); assert.equal(state.sent,1);
 });
