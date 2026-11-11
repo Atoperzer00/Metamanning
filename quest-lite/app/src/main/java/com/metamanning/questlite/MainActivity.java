@@ -157,6 +157,7 @@ public final class MainActivity extends Activity {
         layout.addView(toolbar);
         LinearLayout inputBar = new LinearLayout(this);
         addButton(inputBar, "Keyboard", this::keyboard);
+        addButton(inputBar, "Voice", this::voice);
         addButton(inputBar, "Speak", this::dictate);
         addButton(inputBar, "Role", this::roleOptions);
         addButton(inputBar, "Photo", this::pickPhoto);
@@ -360,6 +361,15 @@ public final class MainActivity extends Activity {
                 ? "ChatGPT dictation opened. Speak, then review the transcript."
                 : "No Android speech service or compatible website dictation control. Use the website microphone or keyboard."));
         }
+    }
+    private void voice() {
+        if (live) { showStatus("Stop Live before opening voice chat."); return; }
+        if (!isChatPage()) { showStatus("Open ChatGPT before starting voice chat."); return; }
+        evaluate("startVoice()", result -> showStatus("voice-opened".equals(result)
+            ? "Opening ChatGPT voice. Allow the microphone if prompted."
+            : "voice-unavailable".equals(result)
+                ? "Voice chat is unavailable on this page. Use Speak for dictation or open ChatGPT in Quest Browser."
+                : result));
     }
     private void pickPhoto() {
         if (live) { showStatus("Stop Live to choose a photo."); return; }

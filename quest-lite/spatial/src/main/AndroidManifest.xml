@@ -38,5 +38,12 @@
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|uiMode" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".MainActivity" android:exported="false" android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|uiMode" android:windowSoftInputMode="adjustResize" />
+        <activity-alias android:name=".ChatFallback" android:targetActivity=".MainActivity"
+            android:exported="true" android:label="Luma Chat" android:icon="@drawable/ic_metamanning">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
     </application>
 </manifest>

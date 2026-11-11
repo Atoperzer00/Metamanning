@@ -112,6 +112,20 @@
       if (!button || button.disabled) return 'dictation-unavailable';
       button.click(); return 'dictation-started';
     },
+    startVoice() {
+      if (signedOutControls()) return 'authentication-required';
+      const controls = [...document.querySelectorAll('button, [role="button"]')];
+      const button = controls.find(element => {
+        if (!visible(element) || element.disabled || element.getAttribute?.('aria-disabled') === 'true') return false;
+        const id = element.getAttribute?.('data-testid') || '';
+        const label = (element.getAttribute?.('aria-label') || element.innerText || '').trim();
+        return /^(?:composer-voice-button|voice-mode-button|start-voice-button)$/.test(id)
+          || /^(?:start|open|use) voice(?: mode| chat| conversation)?$/i.test(label)
+          || /^voice (?:mode|chat|conversation)$/i.test(label);
+      });
+      if (!button) return 'voice-unavailable';
+      button.click(); return 'voice-opened';
+    },
     focus() { const field = editor(); if (!field) return 'missing-composer'; field.focus(); return 'ok'; },
     attach(base64, autoSend, prompt) {
       if (!editor()) return 'missing-composer';

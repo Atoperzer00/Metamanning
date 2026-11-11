@@ -31,6 +31,25 @@ test('dictation appends to a draft without submitting', () => {
   const {adapter, state} = page(); state.draft = 'Existing';
   assert.equal(adapter.dictate('words'), 'ok'); assert.equal(state.draft, 'Existing words'); assert.equal(state.sent, 0);
 });
+test('voice opens only a visible ChatGPT voice control after sign-in', () => {
+  const {adapter, state, context} = page();
+  const original = context.document.querySelectorAll;
+  let opened = 0;
+  const control = (label, shown = true) => ({
+    getClientRects() {return shown ? [{}] : [];},
+    getAttribute(name) {return name === 'aria-label' ? label : null;},
+    click() {opened++;}
+  });
+  let buttons = [control('Read aloud'), control('Start voice conversation', false)];
+  context.document.querySelectorAll = selector => selector === 'button, [role="button"]' ? buttons : original(selector);
+  assert.equal(adapter.startVoice(), 'voice-unavailable'); assert.equal(opened, 0);
+  buttons = [control('Read aloud'), control('Start voice conversation')];
+  state.login = true;
+  assert.equal(adapter.startVoice(), 'authentication-required'); assert.equal(opened, 0);
+  state.login = false;
+  assert.equal(adapter.startVoice(), 'voice-opened'); assert.equal(opened, 1);
+  assert.equal(state.sent, 0);
+});
 test('sampled live does not replace a user draft, attachment, or active response', () => {
   const {adapter, state} = page(); state.draft = 'My draft';
   assert.equal(adapter.attach('eA==', true), 'draft-present');
