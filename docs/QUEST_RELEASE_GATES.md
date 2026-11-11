@@ -2,7 +2,7 @@
 
 Owner requirements: own ChatGPT account; passthrough; hand controls; simple conversation; speech-to-text and keyboard; live camera vision and photo upload; flexible window placement; persistent windows belonging to a physical room. Only a finished, verified interface should be pushed as a release.
 
-**Current decision: NOT READY.** Spatial work is on the local `work/spatial-room-workspace` branch. Do not publish it, replace the preview APK, merge the earlier PR as a finished product, or describe the interface as fully verified while the device/account gates remain open.
+**Current decision: NOT READY.** The owner subsequently explicitly requested pushing the development build now. Source and a clearly labeled development APK are therefore being pushed on `work/spatial-room-workspace`. This authorization does not change the verification results: do not merge or describe the interface as a finished, fully verified release while the device/account gates remain open.
 
 | Requirement | Implementation / offline evidence | Remaining release gate |
 | --- | --- | --- |

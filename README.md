@@ -1,6 +1,6 @@
 # Metamanning — Quest 3 spatial workspace
 
-**Local spatial development — not ready for release.** The room-based workspace is described in [spatial setup](quest-lite/spatial/README.md), with [verification and remaining device gates](docs/QUEST_RELEASE_GATES.md). The previously uploaded 0.2.0 APK is an earlier 2D prototype and does not contain these spatial features.
+**Spatial development build — not verified as finished.** [Download the spatial development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/spatial-room-workspace/downloads/Metamanning-Spatial-0.3.0-dev.apk). The room-based workspace is described in [spatial setup](quest-lite/spatial/README.md), with [verification and remaining device gates](docs/QUEST_RELEASE_GATES.md). The previously uploaded 0.2.0 APK is an earlier 2D prototype and does not contain these spatial features.
 
 
 Based on [JarvisVR](https://github.com/sumitaich1998/jarvisvr), imported with its Git history and MIT license. Upstream's original documentation follows below.

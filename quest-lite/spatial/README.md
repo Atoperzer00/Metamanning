@@ -1,4 +1,4 @@
-# Metamanning Spatial — local development, release blocked
+# Metamanning Spatial — development build, verification pending
 
 This is the Quest 3 immersive implementation. It is separate from the earlier 2D companion and has a different application ID (`com.metamanning.spatial`). **It is not a finished or hardware-verified release.** The previously uploaded 0.2.0 APK does not contain this workspace.
 
