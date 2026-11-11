@@ -71,3 +71,6 @@ models/
 # Lightweight Android companion
 .gradle/
 local.properties
+
+# Kotlin compiler local sessions
+.kotlin/

@@ -23,7 +23,7 @@ final class ShellStyle {
         LinearLayout header = new LinearLayout(context); header.setGravity(android.view.Gravity.CENTER_VERTICAL);
         header.setPadding(dp(context, 4), dp(context, 4), dp(context, 4), dp(context, 12));
         ImageView mark = new ImageView(context); mark.setImageResource(R.drawable.ic_metamanning);
-        mark.setContentDescription("Metamanning"); header.addView(mark, new LinearLayout.LayoutParams(dp(context, 38), dp(context, 38)));
+        mark.setContentDescription("Luma"); header.addView(mark, new LinearLayout.LayoutParams(dp(context, 38), dp(context, 38)));
         LinearLayout titles = new LinearLayout(context); titles.setOrientation(LinearLayout.VERTICAL);
         titles.setPadding(dp(context, 12), 0, 0, 0);
         TextView title = new TextView(context); title.setText(R.string.app_brand); title.setTextSize(21);

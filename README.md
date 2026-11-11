@@ -1,8 +1,20 @@
-# Metamanning — lightweight Quest companion
+# Luma — Your meta assistant
 
-Based on [JarvisVR](https://github.com/sumitaich1998/jarvisvr), imported with its Git history and MIT license. Upstream's original documentation follows below.
+[Download the latest spatial APK: 0.5.0 development build](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/spatial-room-workspace/downloads/Luma-Spatial-0.5.0-dev.apk)
 
-**Start here:** [Quest Lite features and setup](quest-lite/README.md). The lightweight Android companion uses your signed-in ChatGPT account, Quest system passthrough and hand pointers, keyboard, Android dictation, native camera preview/snapshots, photo upload, and opt-in sampled live vision. It needs no API key or Jarvis backend. Live vision sends periodic image messages through an experimental website adapter; headset and signed-in website validation are still required. The full upstream Unity implementation remains in `unity-client/` for immersive work.
+Assistant, Browser and HTML Widget panels in a room-based Quest 3 workspace. Use your own ChatGPT account; account mode requires no API key or separate AI backend. Widgets can come from an AI reply, a built-in template, pasted HTML or an imported file.
+
+- Luma role briefing, with per-window preferences, visible draft review and honest capability boundaries.
+- Up to six windows, with placement presets, mapped-surface placement, resize, lock, follow, focus, hide/show, recall and closed-window recovery.
+- In-workspace HTTPS browser with navigation, bookmarks, find, uploads and reviewed page-to-assistant drafts.
+- Widget editor, HTML import/export, local state, optional HTTPS networking, and Clock/Notes/Checklist/Focus Timer/Calculator templates.
+- Existing keyboard, dictation, camera snapshot, photo upload and configurable sampled-live-vision flows retained.
+
+**Development build: not certified as finished.** Automated checks pass; physical Quest 3, signed-in account, hands, camera, voice and real room relocalization still require on-device acceptance. Live vision uses periodic images, not continuous native video.
+
+[Luma role and upgrade guide](docs/LUMA_05_GUIDE.md) · [Must-have audit](docs/MUST_HAVE_COVERAGE.md) · [0.5 verification](docs/VERIFICATION_05.md) · [Downloads](downloads/README.md)
+
+Based on [JarvisVR](https://github.com/sumitaich1998/jarvisvr), with its history and license preserved. The native account-based implementation is in `quest-lite/spatial/`; the original Unity/backend foundation remains available. Upstream's original documentation follows.
 
 ---
 

@@ -1,3 +1,51 @@
+# Latest Quest 3 download
+
+[Download Luma Spatial 0.5.0 development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/spatial-room-workspace/downloads/Luma-Spatial-0.5.0-dev.apk)
+
+Luma — Your meta assistant. Includes the existing spatial workspace, browser, widgets, voice and camera features, plus a configurable assistant role briefing. Physical Quest and signed-in account acceptance remain pending.
+
+Save to your **computer’s Downloads folder**, then install with Meta Quest Developer Hub. Open **Luma** under Unknown Sources. Copying to headset storage does not install it.
+
+```sh
+adb install -r Luma-Spatial-0.5.0-dev.apk
+```
+
+The package ID and signing certificate are unchanged for updates from Metamanning 0.4. Existing room layouts, profiles and widget state retain their identifiers. Export important layouts before updating. See [Luma guide](../docs/LUMA_05_GUIDE.md) and [checksums](SHA256SUMS).
+
+---
+
+# Earlier Metamanning downloads
+
+[Download Metamanning Spatial 0.4.0 development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/spatial-room-workspace/downloads/Metamanning-Spatial-0.4.0-dev.apk)
+
+This is the latest browser/widgets upgrade. It includes Assistant, Browser and HTML Widget panels, up to six spatial windows, assistant tools, widget templates and closed-window recovery. It is a development build; physical Quest and signed-in account verification remain pending.
+
+Save the APK in your **computer’s Downloads folder**, then install it with Meta Quest Developer Hub. Copying the APK into the Quest's storage folders does not install it. Open **Metamanning Spatial — development** from Unknown Sources.
+
+For ADB users:
+
+```sh
+adb install -r Metamanning-Spatial-0.4.0-dev.apk
+```
+
+The bundled 0.3 and 0.4 APKs have matching signing certificates, and schema-1 room layouts migrate forward. Keep a layout export before upgrades. Old 0.3 code does not read the new schema-2 browser/widget layouts. Checksums are in [SHA256SUMS](SHA256SUMS).
+
+[0.4 user guide](../docs/METAMANNING_04_GUIDE.md) · [Must-have coverage](../docs/MUST_HAVE_COVERAGE.md)
+
+---
+
+## Earlier builds
+
+# Quest APK downloads
+
+[Download Metamanning Spatial 0.3.0 development APK — Quest 3](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/spatial-room-workspace/downloads/Metamanning-Spatial-0.3.0-dev.apk)
+
+This is the newer immersive room-based workspace. It is a development build, with physical Quest and signed-in account verification still pending. Install using Meta Quest Developer Hub, or `adb install -r Metamanning-Spatial-0.3.0-dev.apk`. Open **Metamanning Spatial — development** from Unknown Sources.
+
+The SHA-256 checksum is in [SHA256SUMS](SHA256SUMS).
+
+---
+
 # Quest preview APK
 
 [Download Metamanning Lite 0.2.0](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/upgrade/lightweight-quest/downloads/Metamanning-Lite-0.2.0.apk)

@@ -1,4 +1,4 @@
-name: Quest Lite APK
+name: Quest development verification
 on:
   workflow_dispatch:
   push:
@@ -19,13 +19,22 @@ jobs:
       - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.13'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test quest-lite/tests/chatgpt-adapter.test.cjs
-      - run: gradle --no-daemon -p quest-lite assembleDebug lintDebug
+      - run: npm ci --prefix quest-lite
+      - run: npm --prefix quest-lite test
+      - run: npx playwright install --with-deps chromium
+        working-directory: quest-lite
+      - run: npm --prefix quest-lite run test:browser
+      - run: npm --prefix quest-lite run test:widgets
+      - run: gradle --no-daemon -p quest-lite :app:assembleDebug :app:lintDebug :spatial:assembleDebug :spatial:testDebugUnitTest :spatial:lintDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: metamanning-lite-debug
+          name: luma-lite-debug
           path: quest-lite/app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: luma-spatial-development-not-device-verified
+          path: quest-lite/spatial/build/outputs/apk/debug/spatial-debug.apk

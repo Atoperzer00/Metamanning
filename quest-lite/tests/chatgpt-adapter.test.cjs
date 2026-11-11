@@ -2,22 +2,22 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
-const code = fs.readFileSync('quest-lite/app/src/main/assets/chatgpt-adapter.js', 'utf8');
+const code = fs.readFileSync(require('node:path').join(__dirname, '../app/src/main/assets/chatgpt-adapter.js'), 'utf8');
 function page(origin = 'https://chatgpt.com') {
   const state = {now: 0, draft: '', busy: false, image: false, progress: false, disabled: false, sent: 0, changes: 0};
   const send = {get disabled() {return state.disabled;}, getAttribute() {return null;}, click() {state.sent++;}};
-  const form = {querySelector(selector) {
+  const form = {querySelectorAll(selector) {return selector.includes('input') ? [input] : [];}, querySelector(selector) {
     if (selector.includes('img')) return state.image ? {} : null;
     if (selector.includes('progressbar')) return state.progress ? {} : null;
     if (selector.includes('send-button')) return send;
     return null;
   }};
   const field = {tagName: 'DIV', get innerText() {return state.draft;}, set textContent(value) {state.draft = value;},
-    focus() {}, dispatchEvent() {}, closest() {return form;}};
+    getClientRects() {return [{}];}, focus() {}, dispatchEvent() {}, closest() {return form;}};
   const input = {accept: 'image/*', dispatchEvent() {state.changes++;}};
   const context = {window: {}, location: {origin}, Date: {now: () => state.now},
-    document: {querySelector(selector) {return selector === '#prompt-textarea' ? field : state.busy ? {} : null;},
-      querySelectorAll() {return [input];}},
+    document: {addEventListener() {}, removeEventListener() {}, querySelector(selector) {return selector === '#prompt-textarea' ? field : state.busy ? {} : null;},
+      querySelectorAll(selector) {return selector === '[data-message-author-role="user"]' ? (state.userRole ? [{innerText:state.userRole}] : []) : selector === 'button, a' ? (state.login ? [{innerText:'Log in', getClientRects(){return [{}];}, closest(){return null;}}] : []) : selector.includes('input[type') ? [input] : [field];}},
     File: class {}, DataTransfer: class {constructor() {this.items = {add() {}}; this.files = []; }},
     Event: class {}, InputEvent: class {}, atob: x => Buffer.from(x, 'base64').toString('binary')};
   vm.runInNewContext(code, context);
@@ -75,4 +75,60 @@ test('a conversation URL change prevents submission of an already staged frame',
   context.location.href = 'https://chatgpt.com/c/one'; adapter.attach('eA==', true);
   state.now = 4000; state.image = true; context.location.href = 'https://chatgpt.com/c/two';
   assert.equal(adapter.sendPending(), 'conversation-changed'); assert.equal(state.sent, 0);
+});
+test('visible account sign-in controls block file changes outside the composer form', () => {
+  const {adapter, state} = page(); state.login = true;
+  assert.equal(adapter.capabilities().uploadsRequireLogin, true);
+  assert.equal(adapter.attach('eA==', false), 'authentication-required');
+  assert.equal(state.changes, 0);
+});
+test('custom live questions survive staging and are the only prompt auto-submitted', () => {
+  const {adapter, state} = page(); adapter.attach('eA==', true, 'Read the label in front of me.');
+  state.now = 4000; state.image = true; assert.equal(adapter.sendPending(), 'waiting');
+  assert.equal(state.draft, 'Read the label in front of me.');
+  assert.equal(adapter.sendPending(), 'sent');
+});
+test('tool drafts preserve existing text and never auto-submit', () => {
+  const {adapter,state}=page();state.draft='Keep my draft';
+  assert.equal(adapter.draft('Browser excerpt'), 'draft-present');assert.equal(state.draft,'Keep my draft');
+  state.draft='';assert.equal(adapter.draft('Browser excerpt'),'ok');assert.equal(state.draft,'Browser excerpt');assert.equal(state.sent,0);
+});
+test('widget extraction uses only HTML in the latest assistant reply', () => {
+  const {adapter,context}=page();const original=context.document.querySelectorAll;
+  context.TextEncoder=TextEncoder;
+  let replies=[{querySelectorAll(){return [{className:'language-html',textContent:'<h1>Widget</h1>'}];}}];
+  context.document.querySelectorAll=selector=>selector.includes('data-message-author-role')?replies:original(selector);
+  assert.equal(adapter.latestHtml(),'<h1>Widget</h1>');
+  replies.push({querySelectorAll(){return [];},innerText:'Just an explanation.'});
+  assert.equal(adapter.latestHtml(),'no-widget-html');
+  replies=[{querySelectorAll(){return [];},innerText:'```html\n<section>Latest</section>\n```'}];
+  assert.equal(adapter.latestHtml(),'<section>Latest</section>\n');
+});
+test('oversized UTF-8 widget code is rejected instead of silently truncated', () => {
+  const {adapter,context}=page();context.TextEncoder=TextEncoder;
+  context.document.querySelectorAll=()=>[{querySelectorAll(){return [{className:'language-html',textContent:'<div>'+ '🧩'.repeat(40000)+'</div>'}];}}];
+  assert.equal(adapter.latestHtml(),'widget-too-large');
+});
+
+test('Luma role preserves drafts, requires review and deduplicates accepted briefing', () => {
+  const {adapter,state}=page(); adapter.configureRole('You are Luma, your meta assistant.',true);
+  state.draft='Help with my room'; assert.equal(adapter.prepareRoleDraft(),'prepared');
+  assert.match(state.draft,/You are Luma/); assert.match(state.draft,/Help with my room$/);
+  assert.equal(state.sent,0); assert.equal(adapter.prepareRoleDraft(),'already-prepared');
+  state.userRole=state.draft; state.draft='Next question';
+  assert.equal(adapter.prepareRoleDraft(),'already-briefed'); assert.equal(state.draft,'Next question');
+  adapter.configureRole('You are Luma. Focus on accessibility.',true);
+  assert.equal(adapter.prepareRoleDraft(),'prepared'); assert.match(state.draft,/accessibility/);
+});
+test('role can be disabled or attached manually without sending', () => {
+  const {adapter,state}=page(); adapter.configureRole('You are Luma.',false); state.draft='Keep this';
+  assert.equal(adapter.prepareRoleDraft(),'role-disabled'); assert.equal(state.draft,'Keep this');
+  assert.equal(adapter.prepareRoleDraft(true),'prepared'); assert.equal(state.sent,0);
+});
+test('authorized live snapshot includes Luma role and original question exactly once', () => {
+  const {adapter,state}=page(); adapter.configureRole('You are Luma.',true);
+  adapter.attach('eA==',true,'Read this label'); state.now=4000; state.image=true;
+  assert.equal(adapter.sendPending(),'waiting'); assert.match(state.draft,/You are Luma/);
+  assert.match(state.draft,/Read this label$/); assert.equal(adapter.sendPending(),'sent');
+  assert.equal(adapter.sendPending(),'none'); assert.equal(state.sent,1);
 });

@@ -2,6 +2,9 @@ package com.metamanning.questlite;
 
 import android.content.Context;
 import android.graphics.ImageFormat;
+import android.graphics.Rect;
+import android.graphics.YuvImage;
+import java.io.ByteArrayOutputStream;
 import android.hardware.camera2.*;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
@@ -28,6 +31,7 @@ final class QuestCamera implements AutoCloseable {
     private Surface surface;
     private boolean capturePending;
     private int generation;
+    private int outputFormat;
 
     QuestCamera(Context context, TextureView preview, Listener listener) {
         this.context = context;
@@ -47,19 +51,39 @@ final class QuestCamera implements AutoCloseable {
         try {
             StreamConfigurationMap map = manager.getCameraCharacteristics(id).get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
             if (map == null) throw new IllegalStateException("Camera has no stream configuration");
-            Size jpeg = choose(map.getOutputSizes(ImageFormat.JPEG), 1280);
+            Size[] yuv = map.getOutputSizes(ImageFormat.YUV_420_888);
+            outputFormat = yuv != null && yuv.length > 0 ? ImageFormat.YUV_420_888 : ImageFormat.JPEG;
+            Size jpeg = choose(map.getOutputSizes(outputFormat), 1280);
             Size display = choose(map.getOutputSizes(android.graphics.SurfaceTexture.class), 1280);
             preview.getSurfaceTexture().setDefaultBufferSize(display.getWidth(), display.getHeight());
             surface = new Surface(preview.getSurfaceTexture());
-            reader = ImageReader.newInstance(jpeg.getWidth(), jpeg.getHeight(), ImageFormat.JPEG, 2);
+            reader = ImageReader.newInstance(jpeg.getWidth(), jpeg.getHeight(), outputFormat, 2);
             reader.setOnImageAvailableListener(source -> {
                 if (token != generation) return;
                 try (Image image = source.acquireLatestImage()) {
                     if (image == null) return;
-                    ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                    byte[] bytes = new byte[buffer.remaining()]; buffer.get(bytes);
+                    byte[] bytes;
+                    if (image.getFormat() == ImageFormat.YUV_420_888) {
+                        Rect crop = image.getCropRect();
+                        int left = crop.left & ~1, top = crop.top & ~1;
+                        int width = crop.width() & ~1, height = crop.height() & ~1;
+                        Image.Plane[] planes = image.getPlanes();
+                        byte[] nv21 = Yuv420.nv21(width, height, left, top,
+                            new ByteBuffer[]{planes[0].getBuffer(), planes[1].getBuffer(), planes[2].getBuffer()},
+                            new int[]{planes[0].getRowStride(), planes[1].getRowStride(), planes[2].getRowStride()},
+                            new int[]{planes[0].getPixelStride(), planes[1].getPixelStride(), planes[2].getPixelStride()});
+                        ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+                        if (!new YuvImage(nv21, ImageFormat.NV21, width, height, null).compressToJpeg(new Rect(0, 0, width, height), 70, encoded))
+                            throw new IllegalStateException("Could not encode camera image");
+                        bytes = encoded.toByteArray();
+                    } else {
+                        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+                        bytes = new byte[buffer.remaining()]; buffer.get(bytes);
+                    }
                     capturePending = false;
                     listener.frame(bytes);
+                } catch (RuntimeException error) {
+                    capturePending = false; listener.status("Image conversion failed: " + error.getMessage());
                 }
             }, handler);
             manager.openCamera(id, new CameraDevice.StateCallback() {
@@ -90,9 +114,9 @@ final class QuestCamera implements AutoCloseable {
     void capture() {
         if (!ready() || capturePending) { listener.status("Wait for the camera, then try Snapshot again."); return; }
         try {
-            CaptureRequest.Builder request = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            CaptureRequest.Builder request = camera.createCaptureRequest(outputFormat == ImageFormat.YUV_420_888 ? CameraDevice.TEMPLATE_PREVIEW : CameraDevice.TEMPLATE_STILL_CAPTURE);
             request.addTarget(reader.getSurface());
-            request.set(CaptureRequest.JPEG_QUALITY, (byte)70);
+            if (outputFormat == ImageFormat.JPEG) request.set(CaptureRequest.JPEG_QUALITY, (byte)70);
             capturePending = true;
             session.capture(request.build(), new CameraCaptureSession.CaptureCallback() {
                 @Override public void onCaptureFailed(CameraCaptureSession value, CaptureRequest request, CaptureFailure failure) {

@@ -1,4 +1,6 @@
-# Metamanning Lite — Quest 3 / 3S
+# Metamanning Lite — earlier 2D companion
+
+**The room-based Quest 3 implementation is in [spatial/](spatial/README.md). New spatial work is local and release-blocked. The downloadable 0.2.0 APK below is the earlier 2D prototype.**
 
 Small native Android companion built alongside the imported JarvisVR Unity project. It uses the official ChatGPT website and your normal account, with no OpenAI API key or separate AI backend. Android platform APIs supply the camera, keyboard and optional speech recognition; the only added runtime library is AndroidX ExifInterface for reliable photo orientation.
 
@@ -25,14 +27,14 @@ The signed-in website adapter uses the visible composer, image file input and Se
 
 [Download the built 0.2.0 preview APK](../downloads/README.md).
 
-With JDK 17+, Android SDK 35 and Gradle 8.9:
+For current source, use JDK 17+, Android SDK 35 and Gradle 8.13:
 
 ```sh
-gradle -p quest-lite assembleDebug lintDebug
+gradle -p quest-lite :app:assembleDebug :app:lintDebug
 adb install -r quest-lite/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Alternatively, a successful **Quest Lite APK** GitHub Actions run provides the `metamanning-lite-debug` artifact. Enable Quest developer mode, allow USB debugging, and open **Metamanning Lite** from Unknown Sources after installation.
+Alternatively, a successful **Quest development verification** GitHub Actions run provides the `metamanning-lite-debug` artifact. Enable Quest developer mode, allow USB debugging, and open **Metamanning Lite** from Unknown Sources after installation.
 
 This sideload prototype compiles and targets Android API 35. Store distribution and Quest OS compatibility still require device validation. Camera2 headset access requires a supported Horizon OS version and runtime camera permissions; no synthetic images are used if access fails.
 

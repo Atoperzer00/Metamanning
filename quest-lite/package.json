@@ -1,0 +1,13 @@
+{
+  "name": "metamanning-verification",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/chatgpt-adapter.test.cjs",
+    "test:browser": "node tests/browser-check.cjs",
+    "test:public": "node tests/public-page-check.cjs",
+    "test:widgets": "node tests/widget-browser-check.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
