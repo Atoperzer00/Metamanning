@@ -6,7 +6,7 @@ This is the Quest 3 immersive implementation. It is separate from the earlier 2D
 
 See the [0.4 user guide](../../docs/METAMANNING_04_GUIDE.md) for the browser, HTML editor/templates, AI widget creation and closed-window recovery.
 
-The 0.5.1 development source opens the workspace menu and an Assistant panel immediately. If room recognition is unavailable, the panels remain usable in a temporary tracking-space workspace; room-specific saving and recovery become available after a room is recognized. The menu stays visible and can be recentered. This startup change has compiled and passed local tests, but has not yet been checked on a Quest. The downloadable 0.5.0 APK predates this change.
+The 0.5.2 development source opens the redesigned workspace menu and an Assistant panel immediately. If room recognition is unavailable, the panels remain usable in a temporary tracking-space workspace; room-specific saving and recovery become available after a room is recognized. The menu stays visible and can be recentered. This startup change has compiled and passed local tests, but has not yet been checked on a Quest. The downloadable 0.5.0 APK predates this change.
 
 The same APK also exposes **Luma Chat** under Unknown Sources. It opens the existing account-based chat in a standard Quest panel, so a user can still open a conversation if the immersive activity fails. It does not provide room placement or spatial widgets.
 

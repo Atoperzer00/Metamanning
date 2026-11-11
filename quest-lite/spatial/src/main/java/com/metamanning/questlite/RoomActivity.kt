@@ -81,7 +81,7 @@ class RoomActivity : AppSystemActivity() {
     override fun registerPanels(): List<PanelRegistration> {
         val registrations = mutableListOf<PanelRegistration>(
             ViewPanelRegistration(MANAGER, dynamicViewCreator = { _, context -> buildControls(context) }, settingsCreator = {
-                UIPanelSettings(shape = QuadShapeOptions(width = 0.8f, height = 0.95f), display = DpDisplayOptions(600f, 720f), style = PanelStyleOptions(R.style.MetamanningTheme))
+                UIPanelSettings(shape = QuadShapeOptions(width = 0.95f, height = 1.1f), display = DpDisplayOptions(720f, 840f), style = PanelStyleOptions(R.style.MetamanningTheme))
             })
         )
         repeat(RoomLayoutCodec.MAX_WINDOWS) { slot ->
@@ -121,7 +121,7 @@ class RoomActivity : AppSystemActivity() {
         systemManager.findSystem<LocomotionSystem>().enableLocomotion(false)
         sceneReady = true
         // The manager is dynamic: its position is computed from the current viewer on every recall.
-        managerEntity = Entity.create(listOf(Panel(MANAGER), Transform(frontPose(-0.95f, 1.4f)), Grabbable()))
+        managerEntity = Entity.create(listOf(Panel(MANAGER), Transform(frontPose(-1.05f, 1.4f)), Grabbable()))
         // Room scanning can take time or be unavailable. Chat must work immediately.
         addWindow("assistant")
         if (checkSelfPermission(SCENE_PERMISSION) == PackageManager.PERMISSION_GRANTED) loadRooms()
@@ -343,23 +343,58 @@ class RoomActivity : AppSystemActivity() {
     }
     private fun setMessage(value: String) { message = value; roomStatus?.text = value }
     private fun buildControls(context: Context): View {
-        val scroll = ScrollView(context)
+        val gap = ShellStyle.dp(context, 8)
+        val scroll = ScrollView(context).apply { isFillViewport = true; setBackgroundColor(Color.parseColor("#0B1019")) }
         val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         ShellStyle.header(context, column)
-        roomStatus = TextView(context).apply { setTextColor(Color.parseColor("#B6C9DB")); text = message; setPadding(12, 8, 12, 12) }
-        column.addView(roomStatus)
+        column.setPadding(ShellStyle.dp(context, 18), ShellStyle.dp(context, 10), ShellStyle.dp(context, 18), ShellStyle.dp(context, 24))
+        val welcome = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(ShellStyle.dp(context, 20), ShellStyle.dp(context, 18), ShellStyle.dp(context, 20), ShellStyle.dp(context, 20))
+            background = ShellStyle.panel(context, "#152536", "#315266", 20)
+        }
+        welcome.addView(TextView(context).apply {
+            text = "YOUR WORKSPACE"; textSize = 12f; letterSpacing = 0.12f
+            setTextColor(Color.parseColor("#91F4D4"))
+        })
+        welcome.addView(TextView(context).apply {
+            text = "Start anywhere."; textSize = 27f; setTextColor(Color.WHITE)
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(0, gap, 0, gap)
+        })
+        roomStatus = TextView(context).apply {
+            text = message; textSize = 15f; setTextColor(Color.parseColor("#C4D6E8"))
+        }
+        welcome.addView(roomStatus)
+        column.addView(welcome, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = gap })
+        fun section(title: String, detail: String) {
+            column.addView(TextView(context).apply {
+                text = title; textSize = 20f; setTextColor(Color.WHITE)
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setPadding(0, ShellStyle.dp(context, 16), 0, 0)
+            })
+            column.addView(TextView(context).apply {
+                text = detail; textSize = 13f; setTextColor(Color.parseColor("#9FB4CA"))
+                setPadding(0, 0, 0, gap)
+            })
+        }
         fun row(vararg actions: Pair<String, () -> Unit>) {
             val line = LinearLayout(context)
-            actions.forEach { (label, action) -> line.addView(Button(context).apply { text = label; ShellStyle.button(context, this, label); setOnClickListener { action() } }, LinearLayout.LayoutParams(0, ShellStyle.dp(context, 56), 1f)) }
+            actions.forEach { (label, action) -> line.addView(Button(context).apply {
+                text = label; ShellStyle.button(context, this, label); textSize = 15f
+                setOnClickListener { action() }
+            }, LinearLayout.LayoutParams(0, ShellStyle.dp(context, 62), 1f).apply {
+                marginStart = ShellStyle.dp(context, 3); marginEnd = ShellStyle.dp(context, 3); bottomMargin = gap
+            }) }
             column.addView(line)
         }
-        row("Set up room" to { mruk.requestSceneCapture().whenComplete { _, _ -> runOnUiThread { loadRooms() } } }, "Reload room" to { requestRoomPermission() })
-        row("Assistant" to { addWindow() }, "Browser" to { browserDialog() }, "HTML widget" to { chooseWidget() })
-        row("Workspace options" to { workspaceOptions() }, "Save room" to {
-            if (room == null) setMessage("Set up a room before saving window positions.")
-            else if (saveRoom()) setMessage("Saved $roomName. Windows will return when this room is recognized.")
-        })
-        row("Recall all" to {
+        section("Open", "Floating panels you can move around you")
+        row("+ Conversation" to { addWindow() })
+        row("Browser" to { browserDialog() }, "HTML widget" to { chooseWidget() })
+        section("Your windows", "Focus, move, resize or bring a panel back")
+        controls = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        column.addView(controls)
+        row("Bring windows here" to {
             val ordered = windows.values.sortedBy { it.saved.slot }
             val widths = ordered.map { 1.1f * it.saved.size }
             var left = -(widths.sum() + (ordered.size - 1).coerceAtLeast(0) * 0.12f) / 2f
@@ -369,46 +404,73 @@ class RoomActivity : AppSystemActivity() {
                 window.entity.setComponent(Transform(roomLocal(frontPose(side, 1.8f))))
                 window.entity.setComponent(Visible(true)); window.entity.setComponent(Grabbable(enabled = !window.saved.locked)); control(window, "resume")
             }; saveRoom(); refreshControls()
-        }, "Name room" to {
+        }, "Recenter menu" to { recallManager() })
+        section("Room & layout", "Optional: remember placements in this room")
+        row("Set up room" to { mruk.requestSceneCapture().whenComplete { _, _ -> runOnUiThread { loadRooms() } } }, "Reload room" to { requestRoomPermission() })
+        row("Workspace options" to { workspaceOptions() }, "Save room" to {
+            if (room == null) setMessage("Set up a room before saving window positions.")
+            else if (saveRoom()) setMessage("Saved $roomName. Windows will return when this room is recognized.")
+        })
+        row("Name room" to {
             if (room == null) setMessage("Set up a room before naming it.")
             else editName(roomName, "Room name") { roomName = it; saveRoom(); refreshControls() }
-        })
-        row("Closed windows" to {
+        }, "Closed windows" to {
             if (room == null) setMessage("Closed windows are available after room recognition.")
             else restoreClosedWindow()
         })
         row("Export layout" to { exportLayout() }, "Import layout" to { importLayout() })
         row("Reset this room" to {
             if (room == null) setMessage("No recognized room to reset.") else confirmReset()
-        }, "Recenter menu" to { recallManager() })
-        controls = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }; column.addView(controls)
+        })
         scroll.addView(column); refreshControls(); return scroll
     }
     private fun refreshControls() {
         val column = controls ?: return
         column.removeAllViews()
         windows.values.sortedBy { it.saved.slot }.forEach { window ->
-            val line = LinearLayout(column.context).apply { orientation = LinearLayout.VERTICAL }
-            val state = if (window.follow) "follows you" else if (window.saved.hidden) "hidden" else if (window.saved.locked) "pinned and locked" else "room position · movable"
-            line.addView(TextView(column.context).apply { text = "${window.saved.title} · ${window.saved.kind} · $state"; setTextColor(Color.WHITE); setPadding(8, 16, 8, 8) })
-            val buttons = LinearLayout(column.context)
-            fun action(label: String, operation: () -> Unit) { buttons.addView(Button(column.context).apply { text = label; setAllCaps(false); setOnClickListener { operation() } }, LinearLayout.LayoutParams(0, ShellStyle.dp(column.context, 52), 1f)) }
-            action("Place") { placementOptions(window) }
-            action("Size") { sizeOptions(window) }
-            action("Focus") {
+            val context = column.context
+            val line = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(ShellStyle.dp(context, 12), ShellStyle.dp(context, 10), ShellStyle.dp(context, 12), ShellStyle.dp(context, 12))
+                background = ShellStyle.panel(context, "#121E2D", "#2C4054", 16)
+            }
+            val state = if (window.follow) "Follows you" else if (window.saved.hidden) "Hidden" else if (window.saved.locked) "Pinned" else if (room == null) "Temporary · movable" else "Room position · movable"
+            line.addView(TextView(context).apply {
+                text = window.saved.title; textSize = 18f; setTextColor(Color.WHITE)
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            })
+            line.addView(TextView(context).apply {
+                text = "${window.saved.kind.replaceFirstChar { it.uppercase() }} · $state"; textSize = 13f
+                setTextColor(Color.parseColor("#A5BDD1"))
+                setPadding(0, 0, 0, ShellStyle.dp(context, 7))
+            })
+            val top = LinearLayout(context)
+            val bottom = LinearLayout(context)
+            fun action(parent: LinearLayout, label: String, operation: () -> Unit) {
+                parent.addView(Button(context).apply {
+                    text = label; ShellStyle.button(context, this, label); textSize = 13f
+                    setOnClickListener { operation() }
+                }, LinearLayout.LayoutParams(0, ShellStyle.dp(context, 56), 1f).apply {
+                    marginStart = ShellStyle.dp(context, 2); marginEnd = ShellStyle.dp(context, 2)
+                })
+            }
+            action(top, "Focus") {
                 windows.values.forEach { other ->
                     val visible = other.saved.id == window.saved.id
                     other.saved = other.saved.copy(hidden = !visible); other.entity.setComponent(Visible(visible))
                     control(other, if (visible) "resume" else "pause")
                 }; saveRoom(); refreshControls()
             }
-            action("Rename") { editName(window.saved.title, "Window name") { window.saved = window.saved.copy(title = it); control(window, "rename"); saveRoom(); refreshControls() } }
-            action(if (window.saved.hidden) "Show" else "Hide") {
+            action(top, "Place") { placementOptions(window) }
+            action(top, "Size") { sizeOptions(window) }
+            action(bottom, if (window.saved.hidden) "Show" else "Hide") {
                 window.saved = window.saved.copy(hidden = !window.saved.hidden); window.entity.setComponent(Visible(!window.saved.hidden))
                 control(window, if (window.saved.hidden) "pause" else "resume"); saveRoom(); refreshControls()
             }
-            action("Close") { closeWindow(window.saved.slot) }
-            line.addView(buttons); column.addView(line)
+            action(bottom, "Rename") { editName(window.saved.title, "Window name") { window.saved = window.saved.copy(title = it); control(window, "rename"); saveRoom(); refreshControls() } }
+            action(bottom, "Close") { closeWindow(window.saved.slot) }
+            line.addView(top); line.addView(bottom)
+            column.addView(line, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = ShellStyle.dp(context, 8) })
         }
     }
     private fun placementOptions(window: OpenWindow) {
