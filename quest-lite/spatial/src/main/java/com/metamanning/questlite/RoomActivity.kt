@@ -462,6 +462,7 @@ class RoomActivity : AppSystemActivity() {
                 }; saveRoom(); refreshControls()
             }
             action(top, "Place") { placementOptions(window) }
+            action(top, "Pull here") { pullWindowHere(window) }
             action(top, "Size") { sizeOptions(window) }
             action(bottom, if (window.saved.hidden) "Show" else "Hide") {
                 window.saved = window.saved.copy(hidden = !window.saved.hidden); window.entity.setComponent(Visible(!window.saved.hidden))
@@ -473,11 +474,39 @@ class RoomActivity : AppSystemActivity() {
             column.addView(line, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = ShellStyle.dp(context, 8) })
         }
     }
+    /**
+     * A deliberate, controller-friendly precursor to a web-sling gesture: select a distant
+     * panel in the workspace menu and pull it to reading distance. Do not pretend that a
+     * hand-ray pinch is implemented here; genuine gesture recognition is a later device gate.
+     * The original window is repositioned, never duplicated, and remains room-persistable.
+     */
+    private fun pullWindowHere(window: OpenWindow) {
+        if (!active || !sceneReady || shuttingDown || windows[window.saved.slot]?.saved?.id != window.saved.id) return
+        if (window.entity.tryGetComponent<Grabbable>()?.isGrabbed == true) {
+            setMessage("Release this window before pulling it closer.")
+            return
+        }
+        window.follow = false
+        window.saved = window.saved.copy(hidden = false, locked = false)
+        val target = roomLocal(frontPose(0f, 1.05f))
+        window.entity.setComponent(Transform(target))
+        window.entity.setComponent(Grabbable(enabled = true))
+        window.entity.setComponent(Visible(true))
+        control(window, "resume")
+        saveRoom()
+        refreshControls()
+        setMessage("Pulled ${window.saved.title} into reach. Grab to place it, or pin it when ready.")
+    }
+
     private fun placementOptions(window: OpenWindow) {
-        val labels = arrayOf("In front of me", "To my left", "To my right", "Lower / desk height", "Follow me (temporary)", if (window.saved.locked) "Unlock movement" else "Pin and lock in this room", "Place at a surface I look at")
+        val labels = arrayOf("In front of me", "To my left", "To my right", "Lower / desk height", "Follow me (temporary)", if (window.saved.locked) "Unlock movement" else "Pin and lock in this room", "Place at a surface I look at", "Pull this window to me")
+
         AlertDialog.Builder(this).setTitle(window.saved.title).setItems(labels) { _, choice ->
             if (choice == 6) {
                 placeAtSurface(window); return@setItems
+            }
+            if (choice == 7) {
+                pullWindowHere(window); return@setItems
             }
             if (choice == 5) {
                 window.follow = false; window.saved = snapshot(window).copy(locked = !window.saved.locked)
