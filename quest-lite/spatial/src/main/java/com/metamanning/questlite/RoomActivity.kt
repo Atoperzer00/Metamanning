@@ -44,6 +44,8 @@ class RoomActivity : AppSystemActivity() {
     private val thoughtViews = mutableMapOf<Int, OpenThought>()
     private var thoughtStatus: TextView? = null
     private var environmentSwatch: TextView? = null
+    private var environmentInstaller: EnvironmentInstaller? = null
+    private var coThinkHost: CoThinkHost? = null
     private var scrollQuietUntil = 0L
     private var slingSlot: Int? = null
     private var slingSpring = SpringBody(Vec3(0f, 0f, 0f), Vec3(0f, 0f, 0f))
@@ -148,8 +150,9 @@ class RoomActivity : AppSystemActivity() {
             scene.enablePassthrough(prefs.getBoolean("passthrough", true))
             brain.environmentId = "passthrough"
         } else {
-            val selection = runCatching { EnvironmentCatalog.select(savedEnvironment, null) }.getOrElse { EnvironmentCatalog.select("passthrough", null) }
+            val selection = runCatching { environments().activate(savedEnvironment, null) }.getOrElse { environments().activate("passthrough", null) }
             brain.environmentId = selection.active.id
+            brain.environmentLod = selection.lod?.level
             scene.enablePassthrough(selection.active.passthrough)
         }
         systemManager.findSystem<LocomotionSystem>().enableLocomotion(false)
@@ -688,11 +691,15 @@ class RoomActivity : AppSystemActivity() {
     }
     override fun onPause() { active = false; placementHandler.removeCallbacksAndMessages(null); saveRoom(); saveBrain(); windows.values.forEach { control(it, "pause") }; super.onPause() }
     override fun onSpatialShutdown() {
+        runCatching { coThinkHost?.close() }; coThinkHost = null
         saveRoom(); saveBrain(); shuttingDown = true; sceneReady = false
         windows.values.toList().forEach { destroyPanel(it) }; windows.clear()
         super.onSpatialShutdown()
     }
-    override fun onDestroy() { documentIo.shutdownNow(); runCatching { unregisterReceiver(events) }; super.onDestroy() }
+    override fun onDestroy() {
+        runCatching { coThinkHost?.close() }; coThinkHost = null
+        documentIo.shutdownNow(); runCatching { unregisterReceiver(events) }; super.onDestroy()
+    }
     private fun brainProvenance(note: String) = Provenance("user", "local", System.currentTimeMillis(), note)
 
     private fun loadBrain() {
@@ -713,7 +720,7 @@ class RoomActivity : AppSystemActivity() {
 
     private fun refreshThoughtStatus() {
         val selected = brain.selectedId?.let { brain.graph.find(it) }
-        val env = EnvironmentCatalog.curated().firstOrNull { it.id == brain.environmentId }
+        val env = activeEnvironment()
         val flags = listOfNotNull(
             env?.name,
             if (brain.look.indicatorVisible) "CAPTURE ON" else null,
@@ -724,17 +731,34 @@ class RoomActivity : AppSystemActivity() {
         thoughtStatus?.text = "$flags\n$who"
     }
 
+    private fun environments(): EnvironmentInstaller {
+        environmentInstaller?.let { return it }
+        val created = EnvironmentInstaller(AssetEnvironmentSource { id -> assets.open("environments/$id.lumaenv").use { it.readBytes() } })
+        environmentInstaller = created
+        return created
+    }
+
+    private fun activeEnvironment(): EnvironmentPackage? {
+        val id = brain.environmentId
+        if (id == "passthrough") return EnvironmentCatalog.PASSTHROUGH
+        return environments().installed(id) ?: runCatching { CuratedChannel.definition(id) }.getOrNull()
+    }
+
     private fun applyEnvironmentChrome() {
-        val env = EnvironmentCatalog.curated().firstOrNull { it.id == brain.environmentId } ?: return
-        environmentSwatch?.text = env.name
+        val env = activeEnvironment() ?: return
+        val lod = brain.environmentLod?.let { " · LOD $it" }.orEmpty()
+        environmentSwatch?.text = env.name + lod
         environmentSwatch?.setBackgroundColor(Color.parseColor(env.backgroundHex))
-        environmentSwatch?.setTextColor(Color.parseColor(if (env.id == "design-studio") "#1B2430" else "#F2F6FC"))
+        val color = Color.parseColor(env.backgroundHex)
+        val bright = (Color.red(color) + Color.green(color) + Color.blue(color)) / 3 > 160
+        environmentSwatch?.setTextColor(Color.parseColor(if (bright) "#1B2430" else "#F2F6FC"))
     }
 
     private fun selectEnvironment(id: String) {
         val measured = if (id != "passthrough" && brain.frames.ready()) brain.frames.average() else null
-        val selection = runCatching { EnvironmentCatalog.select(id, measured) }.getOrElse { setMessage(it.message ?: "That environment is not available."); return }
+        val selection = runCatching { environments().activate(id, measured) }.getOrElse { setMessage(it.message ?: "That environment is not available."); return }
         brain.environmentId = selection.active.id
+        brain.environmentLod = selection.lod?.level
         if (sceneReady) scene.enablePassthrough(selection.active.passthrough)
         prefs.edit().putString("environment", selection.active.id).putBoolean("passthrough", selection.active.passthrough).apply()
         applyEnvironmentChrome(); refreshThoughtStatus(); setMessage(selection.reason)
@@ -1129,16 +1153,26 @@ class RoomActivity : AppSystemActivity() {
 
     private fun startCoThink() {
         AlertDialog.Builder(this).setTitle("Host a co-think session?")
-            .setMessage("Nothing is shared until you approve specific thoughts. Conversations, camera snapshots, and cookies cannot be approved. This prepares a local share; it does not open a network stream.")
+            .setMessage("Nothing is shared until you approve specific thoughts. Conversations, camera snapshots, cookies, and room anchors cannot be approved. A guest headset joins this session and receives only what you approve. Two physical headsets have not been tested.")
             .setPositiveButton("Host") { _, _ ->
-                brain.share = CoThinkSession(UUID.randomUUID().toString(), SessionRole.HOST)
-                refreshThoughtStatus(); setMessage("You are the host. Approve thoughts to prepare a share.")
+                runCatching { coThinkHost?.close() }
+                coThinkHost = null
+                val session = CoThinkSession(UUID.randomUUID().toString(), SessionRole.HOST)
+                brain.share = session
+                val host = runCatching { CoThinkHost(session.id, { brain.share }, { brain.graph }) }.getOrElse {
+                    brain.share = null
+                    setMessage(it.message ?: "The co-think session could not be hosted.")
+                    return@setPositiveButton
+                }
+                coThinkHost = host
+                refreshThoughtStatus()
+                setMessage("Hosting on port ${host.port}. Session ${session.id}. Approve thoughts, then the other headset joins. Not tested on two physical headsets.")
             }.setNegativeButton("Cancel", null).show()
     }
 
     private fun approveShare() {
         val session = brain.share ?: run { setMessage("Host a co-think session first."); return }
-        if (session.role != SessionRole.HOST) { setMessage("Guests cannot approve a share."); return }
+        if (session.role != SessionRole.HOST || coThinkHost == null) { setMessage("Guests cannot approve a share."); return }
         val eligible = brain.graph.thoughts().filter { canShare(it) }
         if (eligible.isEmpty()) { setMessage("No shareable thoughts. Conversations stay private."); return }
         val checked = BooleanArray(eligible.size)
@@ -1146,23 +1180,42 @@ class RoomActivity : AppSystemActivity() {
             .setPositiveButton("Approve") { _, _ ->
                 val ids = eligible.filterIndexed { index, _ -> checked[index] }.map { it.id }
                 if (ids.isEmpty()) { setMessage("No thoughts approved. Nothing was shared."); return@setPositiveButton }
-                runCatching {
-                    session.approve(brain.graph, ids)
-                    prefs.edit().putString(SHARE_PREF, encodeEnvelope(session.envelope(brain.graph))).apply()
-                }.onSuccess { setMessage("Approved ${ids.size} thoughts. They stay on this headset until a guest imports the prepared share.") }
+                runCatching { session.approve(brain.graph, ids) }
+                    .onSuccess {
+                        val port = coThinkHost?.port
+                        setMessage("Approved ${ids.size} thoughts on port $port. A guest receives only these. Not tested on two physical headsets.")
+                    }
                     .onFailure { setMessage(it.message ?: "Those thoughts cannot be shared.") }
             }.setNegativeButton("Cancel", null).show()
     }
 
     private fun joinCoThink() {
-        val json = prefs.getString(SHARE_PREF, null) ?: run { setMessage("No prepared share on this headset."); return }
-        val envelope = runCatching { decodeEnvelope(json) }.getOrElse { setMessage("Prepared share could not be read."); return }
-        AlertDialog.Builder(this).setTitle("Join as guest?").setMessage("Import ${envelope.thoughts.size} approved thoughts. Private notes and conversations already here stay put.")
-            .setPositiveButton("Import") { _, _ ->
-                brain.share = CoThinkSession(envelope.sessionId, SessionRole.GUEST)
-                runCatching { importEnvelope(brain.graph, envelope, Provenance("import", "co-think-guest", System.currentTimeMillis(), "guest import")) }.onSuccess {
-                    saveBrain(); refreshThoughtStatus(); setMessage("Imported the approved thoughts. Nothing else on this headset was replaced.")
-                }.onFailure { setMessage(it.message ?: "The share was not imported.") }
+        val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(48, 24, 48, 0) }
+        val note = TextView(this).apply { text = "Only thoughts the host approved are imported. Conversations, cookies, camera, and room anchors stay behind. Not tested on two physical headsets." }
+        val hostField = EditText(this).apply { hint = "Host address"; setText("127.0.0.1"); isSingleLine = true }
+        val portField = EditText(this).apply { hint = "Port"; inputType = android.text.InputType.TYPE_CLASS_NUMBER; isSingleLine = true }
+        val sessionField = EditText(this).apply { hint = "Session id"; isSingleLine = true }
+        column.addView(note); column.addView(hostField); column.addView(portField); column.addView(sessionField)
+        AlertDialog.Builder(this).setTitle("Join as guest?").setView(column)
+            .setPositiveButton("Join") { _, _ ->
+                val address = hostField.text.toString().trim()
+                val portNumber = portField.text.toString().trim().toIntOrNull()
+                val sessionId = sessionField.text.toString().trim()
+                if (portNumber == null) { setMessage("Enter the host port."); return@setPositiveButton }
+                runCatching { coThinkHost?.close() }
+                coThinkHost = null
+                documentIo.execute {
+                    val result = runCatching { pullEnvelope(address, portNumber, sessionId) }
+                    runOnUiThread {
+                        if (shuttingDown) return@runOnUiThread
+                        result.onSuccess { envelope ->
+                            brain.share = CoThinkSession(envelope.sessionId, SessionRole.GUEST)
+                            runCatching { importEnvelope(brain.graph, envelope, Provenance("import", "co-think-guest", System.currentTimeMillis(), "guest import")) }
+                                .onSuccess { saveBrain(); refreshThoughtStatus(); setMessage("Imported ${envelope.thoughts.size} approved thoughts. Nothing else was replaced.") }
+                                .onFailure { setMessage(it.message ?: "The share was not imported.") }
+                        }.onFailure { setMessage(it.message ?: "The other headset did not share.") }
+                    }
+                }
             }.setNegativeButton("Cancel", null).show()
     }
 
@@ -1187,19 +1240,24 @@ class RoomActivity : AppSystemActivity() {
         }
         when (brain.look.phase) {
             CapturePhase.IDLE, CapturePhase.SUBMITTED -> { setMessage(brain.look.arm()); refreshThoughtStatus() }
-            CapturePhase.ARMED -> AlertDialog.Builder(this).setTitle("CAPTURE ON")
-                .setMessage("Keep this view as a local reference? The camera stream is not uploaded.")
-                .setPositiveButton("Keep") { _, _ ->
-                    brain.look.capture("local-snapshot:${UUID.randomUUID()}")
-                    setMessage("Snapshot kept on this headset. Submit a question or cancel."); refreshThoughtStatus()
-                }.setNegativeButton("Cancel capture") { _, _ -> brain.look.cancel(); setMessage("Capture canceled."); refreshThoughtStatus() }.show()
+            CapturePhase.ARMED -> {
+                val thought = selectedThought() ?: return
+                AlertDialog.Builder(this).setTitle("CAPTURE ON")
+                    .setMessage("Keep ${thought.title} as the object? A short snapshot stays on this headset. The camera is not used, and the snapshot is not shared.")
+                    .setPositiveButton("Keep") { _, _ ->
+                        val bytes = "${thought.title}\n${thought.contentRef}".toByteArray(Charsets.UTF_8)
+                        runCatching { brain.look.captureObject(thought.id, thought.title, bytes) }
+                            .onSuccess { setMessage("Kept ${thought.title} on this headset. Submit a question or cancel."); refreshThoughtStatus() }
+                            .onFailure { setMessage(it.message ?: "The object was not captured.") }
+                    }.setNegativeButton("Cancel capture") { _, _ -> brain.look.cancel(); setMessage("Capture canceled."); refreshThoughtStatus() }.show()
+            }
             CapturePhase.CAPTURED -> {
                 val field = EditText(this).apply { hint = "What is this?"; isSingleLine = true }
-                AlertDialog.Builder(this).setTitle("Question about the snapshot").setView(field)
+                AlertDialog.Builder(this).setTitle("Question about the object").setView(field)
                     .setPositiveButton("Review") { _, _ ->
                         val request = runCatching { brain.look.submit(field.text.toString()) }.getOrElse { setMessage(it.message ?: "Question was not submitted."); return@setPositiveButton }
-                        routeAssistantDraft("I am looking at something nearby (${request.snapshotRef}). ${request.prompt}\n\nPrepared on device. This does not call ChatGPT tools. Send only if you want this question in the conversation.")
-                        setMessage("Question offered to an assistant window. Nothing was sent automatically."); refreshThoughtStatus()
+                        routeAssistantDraft("I am looking at ${request.objectLabel}. ${request.prompt}\n\nPrepared on device. This does not call ChatGPT tools. Send only if you want this question in the conversation.")
+                        setMessage("Question offered to an assistant window. The snapshot stayed on this headset."); refreshThoughtStatus()
                     }.setNegativeButton("Cancel") { _, _ -> brain.look.cancel(); refreshThoughtStatus() }.show()
             }
         }
@@ -1240,7 +1298,6 @@ class RoomActivity : AppSystemActivity() {
         private const val CHAT_BASE = 7300
         private const val THOUGHT_BASE = 7400
         private const val BRAIN_PREF = "second-brain.v1"
-        private const val SHARE_PREF = "second-brain.envelope"
         private const val SCENE_PERMISSION = "com.oculus.permission.USE_SCENE"
         private const val SCENE_REQUEST = 40
         private const val EXPORT = 41

@@ -20,7 +20,7 @@ Assistant panels now have a **Voice** button that opens a visible voice control 
 - Named room layouts store each panel pose relative to the recognized MRUK room entity, keyed by the room's persistent UUID. They do not restore raw tracking-origin coordinates as physical anchors. Different/unrecognized rooms do not receive another room's windows. Conversation history and draft restoration are handled by the website and require the signed-in acceptance checks. Follow mode is temporary and does not overwrite the saved pinned position.
 - JSON layout export/import validates room identity, schema, window count, slot uniqueness, names, URLs, finite transforms and quaternion/size ranges. Import requires confirmation in the same recognized room. Corrupt saved layouts are preserved until an explicit room reset or valid import.
 - Per-window options: text zoom, live image interval (5–60 seconds), image limit (1–100), and custom camera question. Manual photos and speech transcripts are reviewed before submission. Live vision remains opt-in periodic image messages through the website UI.
-- Second brain: a local thought library separate from the six windows, with note cards, search, links, toss-to-cluster, sling preview, focus, undo, and room anchors. Passthrough remains the default scene; Observatory and Design studio are bundled color-and-light presets with a frame-time fallback. Co-think prepares an explicit local share and does not upload conversations, cookies, or camera streams. Look-and-ask and retrieval only offer a reviewed draft. None of this has been exercised on a headset.
+- Second brain: a local thought library separate from the six windows, with note cards, search, links, toss-to-cluster, sling preview, focus, undo, and room anchors. Passthrough remains the default scene. Observatory and Design studio are curated packages (level of detail, lighting, occlusion, license, and a frame-time gate), not color presets, and there is no environment marketplace. Co-think is a host/guest session that sends only approved thoughts; conversations, cookies, camera references, and room anchors stay behind. That exchange is covered between two local sessions, not two physical headsets. Look-and-ask keeps a snapshot of a selected thought on the headset and only offers a reviewed draft. None of this has been exercised on a headset.
 
 ## Build and automated checks
 
@@ -36,7 +36,7 @@ npm --prefix quest-lite run test:widgets
 npm --prefix quest-lite run test:public
 ```
 
-The spatial APK is approximately 70 MB in this development configuration because it includes Meta's arm64 native engine/interaction/room libraries. It does not bundle Unity, Compose, downloaded environments, or a local AI model. The earlier 2D companion remains smaller, but has different spatial capabilities. Native symbols are not stripped in the current local build; no final footprint or performance claim is made.
+The spatial APK is approximately 70 MB in this development configuration because it includes Meta's arm64 native engine/interaction/room libraries. It does not bundle Unity, Compose, third-party environment meshes, or a local AI model. Two small original environment packages are included on the curated channel. The earlier 2D companion remains smaller, but has different spatial capabilities. Native symbols are not stripped in the current local build; no final footprint or performance claim is made.
 
 ## What still needs the Quest
 

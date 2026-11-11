@@ -5,62 +5,32 @@ import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Curated scenes. Passthrough is the default and the fallback when a frame budget is missed. */
-data class EnvironmentPackage(
-    val id: String,
-    val name: String,
-    val mood: String,
-    val license: String,
-    val bundled: Boolean,
-    val lod: String,
-    val lighting: String,
-    val occlusion: Boolean,
-    val frameBudgetMs: Float,
-    val passthrough: Boolean,
-    val backgroundHex: String,
-    val welcomeHex: String,
-    val locomotionForced: Boolean = false,
-)
-
 data class EnvironmentManifest(val id: String, val license: String, val bundled: Boolean, val marketplaceUrl: String = "")
 
-data class EnvironmentSelection(val active: EnvironmentPackage, val fallback: Boolean, val reason: String)
+data class EnvironmentSelection(val active: EnvironmentPackage, val lod: LodLevel?, val fallback: Boolean, val reason: String)
 
 object EnvironmentCatalog {
     const val FRAME_BUDGET_MS = 13.9f
     val PASSTHROUGH = EnvironmentPackage(
         "passthrough", "Passthrough", "room",
         "Device camera composite. No imported environment assets.",
-        true, "none", "physical", false, FRAME_BUDGET_MS, true, "#0B1019", "#152536",
+        "device-composite", emptyList(), emptyList(), emptyList(), FRAME_BUDGET_MS, true, "#0B1019", "#152536",
     )
-    val OBSERVATORY = EnvironmentPackage(
-        "observatory", "Calm observatory", "calm-dark",
-        "Original Luma preset. No third-party meshes or textures.",
-        true, "solid-sky", "low-warm", false, FRAME_BUDGET_MS, false, "#070B16", "#10182A",
-    )
-    val DESIGN_STUDIO = EnvironmentPackage(
-        "design-studio", "Bright design studio", "bright-studio",
-        "Original Luma preset. No third-party meshes or textures.",
-        true, "solid-sky", "high-neutral", false, FRAME_BUDGET_MS, false, "#E7EEF6", "#F7F4EE",
-    )
+    private val installer = EnvironmentInstaller(CuratedChannel)
 
-    fun curated() = listOf(PASSTHROUGH, OBSERVATORY, DESIGN_STUDIO)
+    fun curated() = listOf(PASSTHROUGH, CuratedChannel.definition("observatory"), CuratedChannel.definition("design-studio"))
 
-    fun select(id: String, measuredFrameMs: Float?): EnvironmentSelection {
-        val chosen = curated().firstOrNull { it.id == id } ?: error("Unknown environment. There is no environment marketplace.")
-        require(chosen.bundled && chosen.license.isNotBlank() && !chosen.locomotionForced) { "Environment failed the comfort gate" }
-        if (chosen.passthrough) return EnvironmentSelection(chosen, false, "Passthrough is on. The room stays visible.")
-        if (measuredFrameMs != null && measuredFrameMs > chosen.frameBudgetMs) {
-            return EnvironmentSelection(PASSTHROUGH, true, "Frame time exceeded ${chosen.frameBudgetMs} ms. Staying in passthrough.")
-        }
-        return EnvironmentSelection(chosen, false, "${chosen.name}. Curated color and light only; no external mesh is loaded.")
-    }
+    val OBSERVATORY get() = CuratedChannel.definition("observatory")
+    val DESIGN_STUDIO get() = CuratedChannel.definition("design-studio")
+
+    fun select(id: String, measuredFrameMs: Float?) = installer.activate(id, measuredFrameMs)
 
     fun accept(manifest: EnvironmentManifest): EnvironmentPackage {
-        require(manifest.marketplaceUrl.isBlank()) { "No environment marketplace" }
+        require(manifest.marketplaceUrl.isBlank() && !manifest.id.contains("://")) { "No environment marketplace" }
         require(manifest.bundled && manifest.license.isNotBlank()) { "Environment is missing a license" }
-        val known = curated().firstOrNull { it.id == manifest.id } ?: error("Unknown environment. There is no environment marketplace.")
+        val known = CuratedChannel.definition(manifest.id)
         require(known.license == manifest.license) { "Environment license does not match the curated package" }
+        require(known.lod.size >= 2 && known.lights.isNotEmpty() && known.occlusion.isNotEmpty()) { "Environment package is incomplete" }
         return known
     }
 }
@@ -142,16 +112,26 @@ fun decodeEnvelope(json: String): SyncEnvelope {
 
 enum class CapturePhase { IDLE, ARMED, CAPTURED, SUBMITTED }
 
-data class ReviewedBridgeRequest(val id: String, val prompt: String, val snapshotRef: String, val claimsWebsiteToolAccess: Boolean) {
+data class LocalSnapshot(val objectId: String, val label: String, val sha256: String, val byteLength: Int)
+
+data class ReviewedBridgeRequest(
+    val id: String,
+    val prompt: String,
+    val objectId: String,
+    val objectLabel: String,
+    val snapshotRef: String,
+    val claimsWebsiteToolAccess: Boolean,
+) {
     init {
-        require(canonicalUuid(id)) { "Invalid bridge request" }
+        require(canonicalUuid(id) && canonicalUuid(objectId)) { "Invalid bridge request" }
         require(!claimsWebsiteToolAccess) { "The website does not grant native tool access" }
         require(prompt.isNotBlank() && prompt.length <= 500) { "Invalid look-and-ask prompt" }
+        require(objectLabel.isNotBlank() && objectLabel.length <= 60 && objectLabel.none { it.code < 32 }) { "Invalid captured object" }
         require(snapshotRef.startsWith("local-snapshot:") && snapshotRef.length <= 80 && !snapshotRef.contains("http")) { "Invalid local snapshot" }
     }
 }
 
-/** Opt-in capture. Nothing is submitted until the user asks, and the request is only a reviewed draft. */
+/** Opt-in capture of one selected object. The bytes stay on this headset; only a hash is kept. */
 class LookAndAsk(private val ids: () -> String = { UUID.randomUUID().toString() }) {
     var optedIn: Boolean = false
         private set
@@ -161,7 +141,8 @@ class LookAndAsk(private val ids: () -> String = { UUID.randomUUID().toString() 
         private set
     var pending: ReviewedBridgeRequest? = null
         private set
-    private var snapshotRef: String? = null
+    var snapshot: LocalSnapshot? = null
+        private set
 
     fun optIn() { optedIn = true }
 
@@ -169,21 +150,27 @@ class LookAndAsk(private val ids: () -> String = { UUID.randomUUID().toString() 
         require(optedIn) { "Look and ask is opt-in." }
         phase = CapturePhase.ARMED
         indicatorVisible = true
-        snapshotRef = null
+        snapshot = null
         pending = null
         return "CAPTURE ON. Nothing has been saved or sent."
     }
 
-    fun capture(localRef: String) {
+    fun captureObject(objectId: String, label: String, bytes: ByteArray) {
         require(phase == CapturePhase.ARMED && indicatorVisible) { "Turn the capture indicator on first." }
-        require(localRef.startsWith("local-snapshot:") && !localRef.contains("camera-stream") && localRef.length <= 80) { "Snapshot must stay a local reference" }
-        snapshotRef = localRef
+        require(canonicalUuid(objectId)) { "Select an object before capturing." }
+        require(label.isNotBlank() && label.length <= 60 && label.none { it.code < 32 }) { "Invalid captured object" }
+        require(bytes.isNotEmpty() && bytes.size <= 256_000) { "Snapshot must stay a local reference" }
+        val digest = sha256Hex(bytes)
+        snapshot = LocalSnapshot(objectId, label, digest, bytes.size)
         phase = CapturePhase.CAPTURED
     }
 
     fun submit(prompt: String): ReviewedBridgeRequest {
         require(phase == CapturePhase.CAPTURED) { "Keep a snapshot before submitting." }
-        val request = ReviewedBridgeRequest(ids(), prompt.trim(), requireNotNull(snapshotRef), claimsWebsiteToolAccess = false)
+        val kept = requireNotNull(snapshot)
+        val request = ReviewedBridgeRequest(
+            ids(), prompt.trim(), kept.objectId, kept.label, "local-snapshot:${kept.sha256}", claimsWebsiteToolAccess = false,
+        )
         pending = request
         phase = CapturePhase.SUBMITTED
         indicatorVisible = false
@@ -191,7 +178,7 @@ class LookAndAsk(private val ids: () -> String = { UUID.randomUUID().toString() 
     }
 
     fun cancel() {
-        snapshotRef = null
+        snapshot = null
         pending = null
         phase = CapturePhase.IDLE
         indicatorVisible = false
@@ -258,6 +245,7 @@ class SecondBrain(private val clock: () -> Long = { System.currentTimeMillis() }
     val look = LookAndAsk()
     val frames = FrameBudget()
     var environmentId: String = "passthrough"
+    var environmentLod: Int? = null
     var focus: FocusBubble? = null
     var share: CoThinkSession? = null
     var selectedId: String? = null
