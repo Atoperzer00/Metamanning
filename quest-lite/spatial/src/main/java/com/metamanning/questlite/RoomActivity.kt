@@ -37,7 +37,7 @@ class RoomActivity : AppSystemActivity() {
     private var managerEntity: Entity? = null
     private var controls: LinearLayout? = null
     private var roomStatus: TextView? = null
-    private var message = "Map your room to enable persistent windows."
+    private var message = "Luma is starting…"
     private val windows = mutableMapOf<Int, OpenWindow>()
     private val prefs by lazy { getSharedPreferences("room-workspaces-v1", MODE_PRIVATE) }
     private data class OpenWindow(var saved: WindowLayout, val entity: Entity, var follow: Boolean = false, var wasGrabbed: Boolean = false)
@@ -122,6 +122,8 @@ class RoomActivity : AppSystemActivity() {
         sceneReady = true
         // The manager is dynamic: its position is computed from the current viewer on every recall.
         managerEntity = Entity.create(listOf(Panel(MANAGER), Transform(frontPose(-0.95f, 1.4f)), Grabbable()))
+        // Room scanning can take time or be unavailable. Chat must work immediately.
+        addWindow("assistant")
         if (checkSelfPermission(SCENE_PERMISSION) == PackageManager.PERMISSION_GRANTED) loadRooms()
         else requestPermissions(arrayOf(SCENE_PERMISSION), SCENE_REQUEST)
     }
@@ -129,7 +131,9 @@ class RoomActivity : AppSystemActivity() {
         setMessage("Recognizing your mapped room…")
         mruk.loadSceneFromDevice().whenComplete { result, error -> runOnUiThread {
             if (shuttingDown) return@runOnUiThread
-            setMessage(if (error != null || result != MRUKLoadDeviceResult.SUCCESS) "Room recognition unavailable. Select Set up room or Reload room." else "Look around to recognize your current room.")
+            setMessage(if (error != null || result != MRUKLoadDeviceResult.SUCCESS)
+                "Temporary workspace is ready. Room saving is unavailable; try Set up room or Reload room."
+            else "Workspace is ready. Look around to recognize your room for saved placements.")
         } }
     }
     private fun updateWorkspace() {
@@ -137,7 +141,6 @@ class RoomActivity : AppSystemActivity() {
         // getCurrentRoom() can fall back to the first room. Never restore private windows on that fallback.
         val recognized = mruk.rooms.firstOrNull { it.entity != null && it.isPositionInRoom(viewer.t) }
         if (recognized?.anchor?.uuid != room?.anchor?.uuid || recognized?.entity?.id != room?.entity?.id) changeRoom(recognized)
-        if (room == null) return
         var released = false
         for (window in windows.values) {
             if (window.follow && !window.saved.hidden) {
@@ -153,28 +156,53 @@ class RoomActivity : AppSystemActivity() {
     }
     private fun changeRoom(next: MRUKRoom?) {
         // Do not persist unlocalized transforms, and do not show one room's conversations in another.
+        val temporary = if (room == null && next != null) windows.values.map { window ->
+            val pose = snapshot(window)
+            window.saved.copy(position = pose.position, rotation = pose.rotation)
+        } else emptyList()
+        if (room != null) saveRoom()
         windows.values.toList().forEach { destroyPanel(it) }; windows.clear()
         room = next; roomSaveBlocked = false
-        if (next == null) { setMessage("Room not recognized. Saved windows remain hidden until this room is recognized."); refreshControls(); return }
+        if (next == null) {
+            addWindow("assistant")
+            setMessage("Temporary workspace is ready. Saved room windows return when that room is recognized.")
+            refreshControls(); return
+        }
         val roomId = next.anchor.uuid.toString()
         val saved = prefs.getString("layout.$roomId", null)
         if (saved != null) {
             runCatching { RoomLayoutCodec.decode(saved, roomId) }.onSuccess { layout ->
                 roomName = layout.name
                 layout.windows.forEach { createWindow(it) }
-                setMessage("$roomName · restored ${layout.windows.size} room windows")
+                if (windows.isEmpty()) addWindow("assistant")
+                setMessage(if (layout.windows.isEmpty()) "$roomName recognized. Your workspace is ready."
+                    else "$roomName · restored ${layout.windows.size} room windows")
             }.onFailure {
                 roomSaveBlocked = true; roomName = prefs.getString("name.$roomId", "Room") ?: "Room"
+                addWindow("assistant")
                 setMessage("Saved layout could not be restored. It has been preserved. Import a backup or explicitly reset this room.")
             }
         } else {
             roomName = prefs.getString("name.$roomId", "Room") ?: "Room"
-            setMessage("$roomName recognized. Add a window, place it, and save this room.")
+            if (temporary.isNotEmpty()) {
+                temporary.forEach { saved ->
+                    val world = Pose(Vector3(saved.position[0], saved.position[1], saved.position[2]),
+                        Quaternion(saved.rotation[0], saved.rotation[1], saved.rotation[2], saved.rotation[3]))
+                    val local = roomLocal(world)
+                    createWindow(saved.copy(position = listOf(local.t.x, local.t.y, local.t.z),
+                        rotation = listOf(local.q.w, local.q.x, local.q.y, local.q.z)))
+                }
+                saveRoom()
+                setMessage("$roomName recognized. Your workspace is now saved in this room.")
+            } else {
+                addWindow("assistant")
+                setMessage("$roomName recognized. Your workspace is ready and saved in this room.")
+            }
         }
         refreshControls()
     }
     private fun roomPose(): Pose = room?.entity?.getComponent<Transform>()?.transform ?: error("No recognized room")
-    private fun roomLocal(world: Pose): Pose = roomPose().inverse() * world
+    private fun roomLocal(world: Pose): Pose = if (room == null) world else roomPose().inverse() * world
     private fun frontPose(side: Float = 0f, distance: Float = 1.3f): Pose {
         val head = scene.getViewerPose().removePitchAndRoll()
         val result = head * Pose(Vector3(side, -0.12f, distance))
@@ -228,16 +256,17 @@ class RoomActivity : AppSystemActivity() {
         }.setNegativeButton("Cancel", null).show()
     }
     private fun createWindow(saved: WindowLayout) {
-        val parent = room?.entity ?: return
+        val parent = room?.entity
         // Allocate the record before Panel creation; the intent creator reads the stable slot record.
-        val entity = Entity.create(listOf(Transform(Pose(Vector3(saved.position[0], saved.position[1], saved.position[2]),
+        val entity = Entity.create(mutableListOf(Transform(Pose(Vector3(saved.position[0], saved.position[1], saved.position[2]),
             Quaternion(saved.rotation[0], saved.rotation[1], saved.rotation[2], saved.rotation[3]))),
-            TransformParent(parent), Scale(Vector3(saved.size)), Grabbable(enabled = !saved.locked), Visible(!saved.hidden)))
+            Scale(Vector3(saved.size)), Grabbable(enabled = !saved.locked), Visible(!saved.hidden)).apply {
+            if (parent != null) add(TransformParent(parent))
+        })
         windows[saved.slot] = OpenWindow(saved, entity)
         entity.setComponent(Panel(CHAT_BASE + saved.slot))
     }
     private fun addWindow(kind: String = "assistant", requestedUrl: String = "https://chatgpt.com/", widgetHtml: String = "") {
-        if (room == null) { setMessage("Recognize or set up a room first."); return }
         val limit = prefs.getInt("window-limit", RoomLayoutCodec.MAX_WINDOWS).coerceIn(1, RoomLayoutCodec.MAX_WINDOWS)
         val slot = (0 until limit).firstOrNull { !windows.containsKey(it) }
         if (slot == null) { setMessage("Window limit reached. Close one or increase the limit in Workspace options."); return }
@@ -249,6 +278,7 @@ class RoomActivity : AppSystemActivity() {
         val title = when (kind) { "browser" -> "Browser ${slot + 1}"; "widget" -> "Widget ${slot + 1}"; else -> "Conversation ${slot + 1}" }
         createWindow(WindowLayout(slot = slot, title = title, url = if (kind == "browser") requestedUrl else "https://chatgpt.com/", kind = kind, html = widgetHtml, position = listOf(pose.t.x, pose.t.y, pose.t.z), rotation = listOf(pose.q.w, pose.q.x, pose.q.y, pose.q.z)))
         saveRoom(); refreshControls()
+        if (room == null) setMessage("Temporary workspace ready. Set up a room when you want windows to return here later.")
     }
     private fun snapshot(window: OpenWindow): WindowLayout {
         val pose = window.entity.getComponent<Transform>().transform
@@ -325,7 +355,10 @@ class RoomActivity : AppSystemActivity() {
         }
         row("Set up room" to { mruk.requestSceneCapture().whenComplete { _, _ -> runOnUiThread { loadRooms() } } }, "Reload room" to { requestRoomPermission() })
         row("Assistant" to { addWindow() }, "Browser" to { browserDialog() }, "HTML widget" to { chooseWidget() })
-        row("Workspace options" to { workspaceOptions() }, "Save room" to { if (saveRoom()) setMessage("Saved $roomName. Windows will return when this room is recognized.") })
+        row("Workspace options" to { workspaceOptions() }, "Save room" to {
+            if (room == null) setMessage("Set up a room before saving window positions.")
+            else if (saveRoom()) setMessage("Saved $roomName. Windows will return when this room is recognized.")
+        })
         row("Recall all" to {
             val ordered = windows.values.sortedBy { it.saved.slot }
             val widths = ordered.map { 1.1f * it.saved.size }
@@ -336,10 +369,18 @@ class RoomActivity : AppSystemActivity() {
                 window.entity.setComponent(Transform(roomLocal(frontPose(side, 1.8f))))
                 window.entity.setComponent(Visible(true)); window.entity.setComponent(Grabbable(enabled = !window.saved.locked)); control(window, "resume")
             }; saveRoom(); refreshControls()
-        }, "Name room" to { editName(roomName, "Room name") { roomName = it; saveRoom(); refreshControls() } })
-        row("Closed windows" to { restoreClosedWindow() })
+        }, "Name room" to {
+            if (room == null) setMessage("Set up a room before naming it.")
+            else editName(roomName, "Room name") { roomName = it; saveRoom(); refreshControls() }
+        })
+        row("Closed windows" to {
+            if (room == null) setMessage("Closed windows are available after room recognition.")
+            else restoreClosedWindow()
+        })
         row("Export layout" to { exportLayout() }, "Import layout" to { importLayout() })
-        row("Reset this room" to { confirmReset() }, "Hide menu" to { managerEntity?.setComponent(Visible(false)) })
+        row("Reset this room" to {
+            if (room == null) setMessage("No recognized room to reset.") else confirmReset()
+        }, "Recenter menu" to { recallManager() })
         controls = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }; column.addView(controls)
         scroll.addView(column); refreshControls(); return scroll
     }
@@ -485,6 +526,7 @@ class RoomActivity : AppSystemActivity() {
     override fun onResume() {
         super.onResume()
         active = true
+        if (sceneReady) recallManager()
         windows.values.filter { !it.saved.hidden }.forEach { control(it, "resume") }
     }
     override fun onPause() { active = false; placementHandler.removeCallbacksAndMessages(null); saveRoom(); windows.values.forEach { control(it, "pause") }; super.onPause() }

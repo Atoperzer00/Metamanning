@@ -6,6 +6,8 @@ This is the Quest 3 immersive implementation. It is separate from the earlier 2D
 
 See the [0.4 user guide](../../docs/METAMANNING_04_GUIDE.md) for the browser, HTML editor/templates, AI widget creation and closed-window recovery.
 
+The 0.5.1 development source opens the workspace menu and an Assistant panel immediately. If room recognition is unavailable, the panels remain usable in a temporary tracking-space workspace; room-specific saving and recovery become available after a room is recognized. The menu stays visible and can be recentered. This startup change has compiled and passed local tests, but has not yet been checked on a Quest. The downloadable 0.5.0 APK predates this change.
+
 - Meta Spatial SDK 0.15 supplies actual immersive passthrough and spatial Android activity panels; the ISDK module and manifest hand-tracking declarations are included.
 - Up to six Assistant, Browser and HTML Widget panels. Assistant panels share their ChatGPT profile; Browser and Widget activities run in separate processes/profiles. Each panel retains its own source/URL, name and options.
 - Placement presets: front, left, right and lower/desk height. A three-second look-to-place action raycasts against mapped physical surfaces. Wall placements align to the surface; horizontal surfaces support an upright panel above the hit point.
