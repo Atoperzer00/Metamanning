@@ -2,22 +2,22 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
-const code = fs.readFileSync('quest-lite/app/src/main/assets/chatgpt-adapter.js', 'utf8');
+const code = fs.readFileSync(require('node:path').join(__dirname, '../app/src/main/assets/chatgpt-adapter.js'), 'utf8');
 function page(origin = 'https://chatgpt.com') {
   const state = {now: 0, draft: '', busy: false, image: false, progress: false, disabled: false, sent: 0, changes: 0};
   const send = {get disabled() {return state.disabled;}, getAttribute() {return null;}, click() {state.sent++;}};
-  const form = {querySelector(selector) {
+  const form = {querySelectorAll(selector) {return selector.includes('input') ? [input] : [];}, querySelector(selector) {
     if (selector.includes('img')) return state.image ? {} : null;
     if (selector.includes('progressbar')) return state.progress ? {} : null;
     if (selector.includes('send-button')) return send;
     return null;
   }};
   const field = {tagName: 'DIV', get innerText() {return state.draft;}, set textContent(value) {state.draft = value;},
-    focus() {}, dispatchEvent() {}, closest() {return form;}};
+    getClientRects() {return [{}];}, focus() {}, dispatchEvent() {}, closest() {return form;}};
   const input = {accept: 'image/*', dispatchEvent() {state.changes++;}};
   const context = {window: {}, location: {origin}, Date: {now: () => state.now},
     document: {querySelector(selector) {return selector === '#prompt-textarea' ? field : state.busy ? {} : null;},
-      querySelectorAll() {return [input];}},
+      querySelectorAll(selector) {return selector === 'button, a' ? (state.login ? [{innerText:'Log in', getClientRects(){return [{}];}, closest(){return null;}}] : []) : selector.includes('input[type') ? [input] : [field];}},
     File: class {}, DataTransfer: class {constructor() {this.items = {add() {}}; this.files = []; }},
     Event: class {}, InputEvent: class {}, atob: x => Buffer.from(x, 'base64').toString('binary')};
   vm.runInNewContext(code, context);
@@ -75,4 +75,16 @@ test('a conversation URL change prevents submission of an already staged frame',
   context.location.href = 'https://chatgpt.com/c/one'; adapter.attach('eA==', true);
   state.now = 4000; state.image = true; context.location.href = 'https://chatgpt.com/c/two';
   assert.equal(adapter.sendPending(), 'conversation-changed'); assert.equal(state.sent, 0);
+});
+test('visible account sign-in controls block file changes outside the composer form', () => {
+  const {adapter, state} = page(); state.login = true;
+  assert.equal(adapter.capabilities().uploadsRequireLogin, true);
+  assert.equal(adapter.attach('eA==', false), 'authentication-required');
+  assert.equal(state.changes, 0);
+});
+test('custom live questions survive staging and are the only prompt auto-submitted', () => {
+  const {adapter, state} = page(); adapter.attach('eA==', true, 'Read the label in front of me.');
+  state.now = 4000; state.image = true; assert.equal(adapter.sendPending(), 'waiting');
+  assert.equal(state.draft, 'Read the label in front of me.');
+  assert.equal(adapter.sendPending(), 'sent');
 });

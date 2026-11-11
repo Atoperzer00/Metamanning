@@ -1,0 +1,39 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android' version '2.2.21'
+}
+android {
+    namespace 'com.metamanning.questlite'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.metamanning.spatial'
+        minSdk 34
+        targetSdk 35
+        versionCode 3
+        versionName '0.3.0-dev'
+        ndk { abiFilters 'arm64-v8a' }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+    sourceSets {
+        main {
+            java.srcDirs += '../app/src/main/java'
+            res.srcDirs += '../app/src/main/res'
+            assets.srcDirs += '../app/src/main/assets'
+        }
+    }
+    packaging { resources.excludes += ['META-INF/LICENSE', 'META-INF/LICENSE.md', 'META-INF/LICENSE-notice.md'] }
+}
+dependencies {
+    implementation 'com.meta.spatial:meta-spatial-sdk:0.15.0'
+    implementation 'com.meta.spatial:meta-spatial-sdk-toolkit:0.15.0'
+    implementation 'com.meta.spatial:meta-spatial-sdk-vr:0.15.0'
+    implementation 'com.meta.spatial:meta-spatial-sdk-isdk:0.15.0'
+    implementation 'com.meta.spatial:meta-spatial-sdk-mruk:0.15.0'
+    implementation 'androidx.exifinterface:exifinterface:1.4.1'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}

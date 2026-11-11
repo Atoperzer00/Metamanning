@@ -7,3 +7,7 @@
 **AndroidX ExifInterface 1.4.1** is used under Apache License 2.0 for photo metadata parsing (https://developer.android.com/jetpack/androidx/releases/exifinterface).
 
 The Android companion uses platform WebView and Camera2 APIs. Its website adapter is a Metamanning integration and is not an official OpenAI SDK. No third-party credentials, compiled applications or model weights are copied into this app.
+
+- **Meta Spatial SDK Samples** — https://github.com/meta-quest/Meta-Spatial-SDK-Samples at `822f4d1ec967d4975ae8db386502b60cda5218c0`. Spatial panel registration, passthrough, MRUK room loading, grabbable and room transform patterns informed/adapted into `spatial/src/main/java/com/metamanning/questlite/RoomActivity.kt`. Copyright Meta Platforms, Inc. and affiliates; MIT sample license is bundled as `app/src/main/assets/licenses/Meta-Samples.txt`. The prebuilt SDK 0.15.0 itself is distributed under the Meta Platform Technologies SDK License Agreement, not the sample MIT license. SDK LICENSE/notices files are retained in the spatial app's assets/licenses directory.
+
+The Quest camera reference at https://github.com/Androktasiai-Leyen/quest-anime-filter was inspected for native YUV camera-format behavior; no code or assets were copied from it.

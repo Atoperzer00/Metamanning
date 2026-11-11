@@ -22,6 +22,13 @@ import java.util.concurrent.ExecutorService;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.Context;
+import android.content.IntentFilter;
+import android.content.BroadcastReceiver;
+import android.content.SharedPreferences;
+import android.widget.EditText;
+import android.widget.SeekBar;
+import android.widget.ScrollView;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
@@ -47,18 +54,36 @@ public final class MainActivity extends Activity {
     private final ExecutorService imageWorker = Executors.newSingleThreadExecutor();
     private QuestCamera camera;
     private TextureView preview;
-    private TextView status;
+    private TextView status, windowTitle;
     private String adapter;
     private boolean live, staged, destroyed;
     private int capturePurpose, sentFrames, liveGeneration;
     private long captureDeadline;
+    private boolean panelHidden;
+    private String liveUrl;
+    private int intervalSeconds = 15, frameLimit = 20, textZoom = 100;
+    private String livePrompt = "Describe important changes in this latest camera view. Keep the answer brief.";
+    private final BroadcastReceiver workspaceControl = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            String id = windowId();
+            if (id == null || !id.equals(intent.getStringExtra("window_id"))) return;
+            String command = intent.getStringExtra("command");
+            if ("close".equals(command)) { stopLive(); camera.close(); finish(); }
+            else if ("pause".equals(command)) { panelHidden = true; stopLive(); camera.close(); web.onPause(); showStatus("Hidden: camera and live sharing stopped."); }
+            else if ("resume".equals(command)) { panelHidden = false; web.onResume(); }
+            else if ("rename".equals(command) && windowTitle != null) {
+                String title = intent.getStringExtra("title");
+                if (title != null) windowTitle.setText(title.substring(0, Math.min(title.length(), 60)));
+            }
+        }
+    };
     private final Runnable liveTick = new Runnable() {
         @Override public void run() {
             if (!live) return;
             if (!isChatPage() || !camera.ready()) { stopLive(); showStatus("Live stopped: camera or conversation unavailable."); return; }
-            if (sentFrames >= 20) { stopLive(); showStatus("Live stopped after 20 images. Tap Live to start another session."); return; }
+            if (sentFrames >= frameLimit) { stopLive(); showStatus("Live session limit reached. Tap Live to start another session."); return; }
             if (!staged && capturePurpose == 0) { capturePurpose = 2; captureDeadline = System.currentTimeMillis() + 10000; camera.capture(); }
-            handler.postDelayed(this, 15000);
+            handler.postDelayed(this, intervalSeconds * 1000L);
         }
     };
     private final Runnable sendTick = new Runnable() {
@@ -69,7 +94,7 @@ public final class MainActivity extends Activity {
             }
             if (staged) evaluate("sendPending()", result -> {
                 if (!live) return;
-                if ("sent".equals(result)) { staged = false; sentFrames++; showStatus("LIVE · sent " + sentFrames + "/20 camera images · Stop to end"); }
+                if ("sent".equals(result)) { staged = false; sentFrames++; showStatus("LIVE · sent " + sentFrames + "/" + frameLimit + " camera images · Stop to end"); }
                 else if (!"waiting".equals(result)) { stopLive(); showStatus("Live stopped: " + result + ". Check the ChatGPT attachment UI."); }
             });
             handler.postDelayed(this, 750);
@@ -81,9 +106,26 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        SharedPreferences options = accountOptions();
+        intervalSeconds = Math.max(5, Math.min(60, options.getInt("interval", 15)));
+        frameLimit = Math.max(1, Math.min(100, options.getInt("limit", 20)));
+        textZoom = Math.max(80, Math.min(160, options.getInt("zoom", 100)));
+        livePrompt = options.getString("prompt", livePrompt);
+        if (getIntent().getBooleanExtra("spatial_panel", false)) {
+            panelHidden = getIntent().getBooleanExtra("initial_hidden", false);
+            if (android.os.Build.VERSION.SDK_INT >= 33)
+                registerReceiver(workspaceControl, new IntentFilter(getPackageName() + ".WORKSPACE_CONTROL"), Context.RECEIVER_NOT_EXPORTED);
+        }
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         ShellStyle.header(this, layout);
+        if (getIntent().getBooleanExtra("spatial_panel", false)) {
+            windowTitle = new TextView(this);
+            String title = getIntent().getStringExtra("window_title");
+            windowTitle.setText(title == null ? "Conversation" : title.substring(0, Math.min(title.length(), 60)));
+            windowTitle.setTextColor(android.graphics.Color.parseColor("#91F4D4"));
+            windowTitle.setTextSize(15); windowTitle.setPadding(8, 0, 8, 8); layout.addView(windowTitle);
+        }
         layout.setOnApplyWindowInsetsListener((view, insets) -> {
             view.setPadding(ShellStyle.dp(this, 12) + insets.getSystemWindowInsetLeft(), ShellStyle.dp(this, 6) + insets.getSystemWindowInsetTop(),
                 ShellStyle.dp(this, 12) + insets.getSystemWindowInsetRight(), ShellStyle.dp(this, 8) + insets.getSystemWindowInsetBottom());
@@ -93,6 +135,9 @@ public final class MainActivity extends Activity {
         addButton(toolbar, "Back", () -> { if (web.canGoBack()) web.goBack(); });
         addButton(toolbar, "ChatGPT", () -> web.loadUrl("https://chatgpt.com/"));
         addButton(toolbar, "Browser", () -> openBrowser("https://chatgpt.com/"));
+        addButton(toolbar, "Options", this::options);
+        if (getIntent().getBooleanExtra("spatial_panel", false))
+            addButton(toolbar, "Windows", () -> workspaceEvent("manager", null));
         layout.addView(toolbar);
         LinearLayout inputBar = new LinearLayout(this);
         addButton(inputBar, "Keyboard", this::keyboard);
@@ -139,6 +184,7 @@ public final class MainActivity extends Activity {
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        settings.setTextZoom(textZoom);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true); // Android document picker supplies content URIs.
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
@@ -147,6 +193,14 @@ public final class MainActivity extends Activity {
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
                 stopLive();
                 if (pendingMic != null) { pendingMic.deny(); pendingMic = null; }
+            }
+            @Override public void doUpdateVisitedHistory(WebView view, String url, boolean reload) {
+                workspaceEvent("url", url);
+                if (live && liveUrl != null && !liveUrl.equals(url)) {
+                    Uri old = Uri.parse(liveUrl), next = Uri.parse(url);
+                    if ((old.getPath() == null || "/".equals(old.getPath())) && next.getPath() != null && next.getPath().startsWith("/c/") && staged && sentFrames <= 1) liveUrl = url;
+                    else { stopLive(); showStatus("Live stopped because the conversation changed."); }
+                }
             }
             @Override public void onPageFinished(WebView view, String url) {
                 if (isChatPage()) web.evaluateJavascript(adapter, null);
@@ -180,7 +234,10 @@ public final class MainActivity extends Activity {
                 if (pendingMic == request) pendingMic = null;
             }
         });
-        if (state == null || web.restoreState(state) == null) web.loadUrl("https://chatgpt.com/");
+        if (state == null || web.restoreState(state) == null) {
+            String initial = getIntent().getStringExtra("initial_url");
+            web.loadUrl(initial != null && officialUrl(initial) ? initial : "https://chatgpt.com/");
+        }
     }
 
     private static boolean trustedNavigation(Uri uri) {
@@ -253,7 +310,14 @@ public final class MainActivity extends Activity {
             catch (Exception e) { callback.receive("adapter-error"); }
         });
     }
-    private void showStatus(String value) { if (!destroyed && status != null) ShellStyle.status(this, status, value); }
+    private void showStatus(String value) {
+        value = value.replace("authentication-required", "sign into ChatGPT first")
+            .replace("missing-composer", "wait for the ChatGPT message box to load")
+            .replace("missing-file-input", "open ChatGPT's attachment menu first")
+            .replace("adapter-unavailable", "reload ChatGPT to reconnect the controls")
+            .replace("adapter-error", "the ChatGPT page controls could not be used");
+        if (!destroyed && status != null) ShellStyle.status(this, status, value);
+    }
     private void keyboard() {
         evaluate("focus()", result -> {
             if (!"ok".equals(result)) { showStatus(result); return; }
@@ -329,7 +393,7 @@ public final class MainActivity extends Activity {
     private void attachImage(byte[] jpeg, boolean autoSend) {
         if (jpeg.length > 4 * 1024 * 1024) { stopLive(); showStatus("Image too large to attach."); return; }
         int token = liveGeneration;
-        evaluate("attach(" + JSONObject.quote(Base64.encodeToString(jpeg, Base64.NO_WRAP)) + "," + autoSend + ")", result -> {
+        evaluate("attach(" + JSONObject.quote(Base64.encodeToString(jpeg, Base64.NO_WRAP)) + "," + autoSend + "," + JSONObject.quote(livePrompt) + ")", result -> {
             if (autoSend && (!live || token != liveGeneration)) return;
             if (autoSend && "staged".equals(result)) { staged = true; showStatus("LIVE · waiting for image upload · Stop to end"); }
             else if (autoSend && ("busy".equals(result) || "draft-present".equals(result))) showStatus("LIVE · skipped frame: conversation busy or draft present");
@@ -341,12 +405,59 @@ public final class MainActivity extends Activity {
         if (live) { stopLive(); showStatus("Live sharing stopped; any staged image remains in the composer."); return; }
         if (!camera.ready() || !isChatPage()) { showStatus("Sign into ChatGPT and open Camera first."); return; }
         new AlertDialog.Builder(this).setTitle("Share live camera snapshots?")
-            .setMessage("Send a camera image and a brief analysis prompt to your ChatGPT conversation every 15 seconds, up to 20 images. This uses your account's image/message allowance. Stop or leaving the app ends sharing. Frames are skipped while ChatGPT is busy or you have a draft.")
+            .setMessage("Send a camera image and your analysis prompt every " + intervalSeconds + " seconds, up to " + frameLimit + " images. This uses your account's image/message allowance. Stop or leaving the app ends sharing. Frames are skipped while ChatGPT is busy or you have a draft.")
             .setPositiveButton("Start sharing", (dialog, which) -> {
-                stopLive(); live = true; sentFrames = 0;
+                stopLive(); live = true; sentFrames = 0; liveUrl = web.getUrl();
                 showStatus("LIVE · camera sharing started · Stop to end");
                 handler.post(liveTick); handler.post(sendTick);
             }).setNegativeButton("Cancel", null).show();
+    }
+    private String windowId() {
+        String value = getIntent().getStringExtra("window_id");
+        try { return java.util.UUID.fromString(value).toString(); }
+        catch (IllegalArgumentException | NullPointerException e) { return null; }
+    }
+    private SharedPreferences accountOptions() {
+        String id = windowId();
+        return getSharedPreferences("account-options" + (id == null ? "" : "." + id), MODE_PRIVATE);
+    }
+    private static boolean officialUrl(String url) {
+        Uri uri = Uri.parse(url);
+        return "https".equals(uri.getScheme()) && "chatgpt.com".equals(uri.getHost()) && uri.getUserInfo() == null && (uri.getPort() == -1 || uri.getPort() == 443);
+    }
+    private void workspaceEvent(String event, String url) {
+        if (!getIntent().getBooleanExtra("spatial_panel", false)) return;
+        Intent intent = new Intent(getPackageName() + ".WORKSPACE_EVENT").setPackage(getPackageName())
+            .putExtra("event", event).putExtra("window_id", windowId());
+        if (url != null && officialUrl(url)) intent.putExtra("url", url);
+        sendBroadcast(intent);
+    }
+    private void options() {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout fields = new LinearLayout(this); fields.setOrientation(LinearLayout.VERTICAL); fields.setPadding(24, 12, 24, 12);
+        TextView rateLabel = new TextView(this); rateLabel.setText("Live image interval: " + intervalSeconds + " seconds"); fields.addView(rateLabel);
+        SeekBar rate = new SeekBar(this); rate.setMax(55); rate.setProgress(intervalSeconds - 5); fields.addView(rate);
+        TextView limitLabel = new TextView(this); limitLabel.setText("Images per session (1–100)"); fields.addView(limitLabel);
+        EditText limit = new EditText(this); limit.setInputType(android.text.InputType.TYPE_CLASS_NUMBER); limit.setText(Integer.toString(frameLimit)); fields.addView(limit);
+        TextView zoomLabel = new TextView(this); zoomLabel.setText("Conversation text size"); fields.addView(zoomLabel);
+        SeekBar zoom = new SeekBar(this); zoom.setMax(80); zoom.setProgress(textZoom - 80); fields.addView(zoom);
+        TextView promptLabel = new TextView(this); promptLabel.setText("Live camera question"); fields.addView(promptLabel);
+        EditText prompt = new EditText(this); prompt.setText(livePrompt); prompt.setMinLines(2); prompt.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(1000)}); fields.addView(prompt);
+        rate.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int value, boolean fromUser) { rateLabel.setText("Live image interval: " + (value + 5) + " seconds"); }
+            @Override public void onStartTrackingTouch(SeekBar bar) {}
+            @Override public void onStopTrackingTouch(SeekBar bar) {}
+        });
+        scroll.addView(fields);
+        new AlertDialog.Builder(this).setTitle("Conversation options").setView(scroll).setPositiveButton("Save", (dialog, which) -> {
+            int requested;
+            try { requested = Integer.parseInt(limit.getText().toString()); } catch (NumberFormatException e) { requested = 20; }
+            intervalSeconds = rate.getProgress() + 5; frameLimit = Math.max(1, Math.min(100, requested));
+            textZoom = zoom.getProgress() + 80; livePrompt = prompt.getText().toString().trim();
+            if (livePrompt.isEmpty()) livePrompt = "Describe this camera view briefly.";
+            accountOptions().edit().putInt("interval", intervalSeconds).putInt("limit", frameLimit).putInt("zoom", textZoom).putString("prompt", livePrompt).apply();
+            web.getSettings().setTextZoom(textZoom); stopLive(); showStatus("Options saved. Live sharing is off until you start it again.");
+        }).setNegativeButton("Cancel", null).show();
     }
     private void stopLive() {
         live = false; staged = false; capturePurpose = 0; liveGeneration++;
@@ -377,9 +488,13 @@ public final class MainActivity extends Activity {
         if (pendingMic != null) { pendingMic.deny(); pendingMic = null; }
         web.onPause(); CookieManager.getInstance().flush(); super.onPause();
     }
-    @Override protected void onResume() { super.onResume(); if (web != null) web.onResume(); }
+    @Override protected void onResume() { super.onResume(); if (web != null && !panelHidden) web.onResume(); }
     @Override public void onBackPressed() { if (web.canGoBack()) web.goBack(); else super.onBackPressed(); }
     @Override protected void onDestroy() {
+        if (getIntent().getBooleanExtra("spatial_panel", false)) {
+            try { unregisterReceiver(workspaceControl); } catch (IllegalArgumentException ignored) {}
+            if (isFinishing()) workspaceEvent("closed", null);
+        }
         destroyed = true; stopLive(); camera.close(); imageWorker.shutdownNow();
         finishPhoto(null);
         if (pendingMic != null) { pendingMic.deny(); pendingMic = null; }
