@@ -4,8 +4,10 @@ This is the Quest 3 immersive implementation. It is separate from the earlier 2D
 
 ## Workspace
 
+See the [0.4 user guide](../../docs/METAMANNING_04_GUIDE.md) for the browser, HTML editor/templates, AI widget creation and closed-window recovery.
+
 - Meta Spatial SDK 0.15 supplies actual immersive passthrough and spatial Android activity panels; the ISDK module and manifest hand-tracking declarations are included.
-- Up to four independent signed-in ChatGPT windows share the app's WebView cookie profile while retaining their own conversation URL, name and options.
+- Up to six Assistant, Browser and HTML Widget panels. Assistant panels share their ChatGPT profile; Browser and Widget activities run in separate processes/profiles. Each panel retains its own source/URL, name and options.
 - Placement presets: front, left, right and lower/desk height. A three-second look-to-place action raycasts against mapped physical surfaces. Wall placements align to the surface; horizontal surfaces support an upright panel above the hit point.
 - Grab/unlock, pin/lock, resize, temporary follow, hide/show, rename, close, recall all and recall workspace menu.
 - The **Windows** button in each chat recalls the workspace menu. Hidden/closed panels and app suspension stop their camera/live sharing.
@@ -22,6 +24,7 @@ gradle -p quest-lite :spatial:assembleDebug :spatial:testDebugUnitTest :spatial:
 npm ci --prefix quest-lite
 npm --prefix quest-lite test
 npm --prefix quest-lite run test:browser
+npm --prefix quest-lite run test:widgets
 # Optional live, logged-out compatibility check. Never submits a message or image.
 npm --prefix quest-lite run test:public
 ```
@@ -34,4 +37,4 @@ See [release gates](../../docs/QUEST_RELEASE_GATES.md). Device/API support, real
 
 Run `quest-lite/tools/quest-preflight.sh` on the computer connected to the Quest. It reads device and app status; it does not install apps, grant permissions or read conversations.
 
-The full official ChatGPT website is retained in each panel. Features and tools follow the signed-in account and website support. Tools available to this cloud coding session are not a newly implemented Quest backend. No private ChatGPT API or credential/session extraction is used.
+The full official ChatGPT website is retained in each Assistant panel. Features and tools follow the signed-in account and website support. Tools available to this cloud coding session are not a newly implemented Quest backend. No private ChatGPT API or credential/session extraction is used.

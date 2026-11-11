@@ -71,6 +71,10 @@ public final class MainActivity extends Activity {
             if ("close".equals(command)) { stopLive(); camera.close(); finish(); }
             else if ("pause".equals(command)) { panelHidden = true; stopLive(); camera.close(); web.onPause(); showStatus("Hidden: camera and live sharing stopped."); }
             else if ("resume".equals(command)) { panelHidden = false; web.onResume(); }
+            else if ("draft".equals(command)) {
+                String prompt = intent.getStringExtra("prompt");
+                if (prompt != null && prompt.length() <= 16000) offerDraft(prompt);
+            }
             else if ("rename".equals(command) && windowTitle != null) {
                 String title = intent.getStringExtra("title");
                 if (title != null) windowTitle.setText(title.substring(0, Math.min(title.length(), 60)));
@@ -143,6 +147,7 @@ public final class MainActivity extends Activity {
         addButton(inputBar, "Keyboard", this::keyboard);
         addButton(inputBar, "Speak", this::dictate);
         addButton(inputBar, "Photo", this::pickPhoto);
+        if (getIntent().getBooleanExtra("spatial_panel", false)) addButton(inputBar, "Tools", this::tools);
         layout.addView(inputBar);
         LinearLayout cameraBar = new LinearLayout(this);
         addButton(cameraBar, "Camera", this::startCamera);
@@ -432,6 +437,44 @@ public final class MainActivity extends Activity {
         if (url != null && officialUrl(url)) intent.putExtra("url", url);
         sendBroadcast(intent);
     }
+    private void tools() {
+        String[] choices = {"Open workspace browser", "New HTML widget", "Ask AI to build a widget", "Create widget from latest AI reply", "Open ChatGPT in Quest Browser"};
+        new AlertDialog.Builder(this).setTitle("Assistant tools").setItems(choices, (dialog, which) -> {
+            if (which == 0) openBrowser("https://www.wikipedia.org/");
+            else if (which == 1) workspaceEvent("new_widget", null);
+            else if (which == 2) widgetPrompt();
+            else if (which == 3) evaluate("latestHtml()", result -> {
+                if ("no-widget-html".equals(result) || "widget-too-large".equals(result) || result.length() == 0) {
+                    showStatus("No usable HTML found in the latest AI reply. Ask for one self-contained HTML code block, or paste code into a blank widget."); return;
+                }
+                if (result.getBytes(StandardCharsets.UTF_8).length > WidgetDocument.MAX_HTML_BYTES) { showStatus("Widget HTML exceeds 128 KB."); return; }
+                if (!result.contains("<")) { showStatus("Wait for an HTML reply before creating a widget."); return; }
+                Intent intent = new Intent(getPackageName() + ".WORKSPACE_EVENT").setPackage(getPackageName()).putExtra("event", "create_widget").putExtra("window_id", windowId()).putExtra("html", result);
+                sendBroadcast(intent);
+            });
+            else externalBrowser("https://chatgpt.com/");
+        }).show();
+    }
+    private void widgetPrompt() {
+        EditText description = new EditText(this); description.setHint("A budget tracker, study timer, dashboard…"); description.setMinLines(2);
+        new AlertDialog.Builder(this).setTitle("What should your widget do?").setView(description).setPositiveButton("Create draft", (dialog, which) -> {
+            String request = description.getText().toString().trim();
+            if (request.isEmpty()) return;
+            offerDraft("Build a Metamanning HTML widget for: " + request +
+                "\nReturn one self-contained fenced html code block with inline CSS and JavaScript. Use a responsive dark design and large touch targets. No remote resources, fetch, eval, popups or external frameworks. The widget runs in an opaque sandboxed iframe with scripts enabled. Optional local persistence: window.metamanning.loadState() returns an object; window.metamanning.saveState(object) saves up to 32 KB. It has no camera, microphone or ChatGPT-account access. Use DOM APIs safely, preserve existing saved state, and provide readable controls. Do not send anything automatically.");
+        }).setNegativeButton("Cancel", null).show();
+    }
+    private void offerDraft(String prompt) {
+        if (live) stopLive();
+        evaluate("draft(" + JSONObject.quote(prompt) + ")", result -> {
+            if ("ok".equals(result)) { showStatus("Draft inserted. Review it and press Send when ready."); return; }
+            new AlertDialog.Builder(this).setTitle("Keep this proposed draft?").setMessage("The message box is busy, unavailable, or already contains text. Your existing draft has been preserved.")
+                .setPositiveButton("Copy proposed text", (dialog, which) -> {
+                    ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText("Assistant draft", prompt));
+                    showStatus("Proposed text copied. Paste it when you are ready.");
+                }).setNegativeButton("Cancel", null).show();
+        });
+    }
     private void options() {
         ScrollView scroll = new ScrollView(this);
         LinearLayout fields = new LinearLayout(this); fields.setOrientation(LinearLayout.VERTICAL); fields.setPadding(24, 12, 24, 12);
@@ -478,6 +521,13 @@ public final class MainActivity extends Activity {
         bar.addView(button, size);
     }
     private void openBrowser(String url) {
+        if (getIntent().getBooleanExtra("spatial_panel", false)) {
+            Intent intent = new Intent(getPackageName() + ".WORKSPACE_EVENT").setPackage(getPackageName()).putExtra("event", "new_browser").putExtra("window_id", windowId()).putExtra("url", url);
+            sendBroadcast(intent); showStatus("Browser requested in your workspace."); return;
+        }
+        externalBrowser(url);
+    }
+    private void externalBrowser(String url) {
         try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
         catch (ActivityNotFoundException e) { notice("No browser installed."); }
     }

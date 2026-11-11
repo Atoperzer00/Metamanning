@@ -32,6 +32,10 @@
                 <category android:name="com.oculus.intent.category.VR" />
             </intent-filter>
         </activity>
+        <activity android:name=".BrowserActivity" android:process=":browser" android:exported="false" android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|uiMode" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".WidgetActivity" android:process=":widgets" android:exported="false" android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|uiMode" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".MainActivity" android:exported="false" android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|uiMode" android:windowSoftInputMode="adjustResize" />
     </application>

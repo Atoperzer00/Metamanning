@@ -88,3 +88,24 @@ test('custom live questions survive staging and are the only prompt auto-submitt
   assert.equal(state.draft, 'Read the label in front of me.');
   assert.equal(adapter.sendPending(), 'sent');
 });
+test('tool drafts preserve existing text and never auto-submit', () => {
+  const {adapter,state}=page();state.draft='Keep my draft';
+  assert.equal(adapter.draft('Browser excerpt'), 'draft-present');assert.equal(state.draft,'Keep my draft');
+  state.draft='';assert.equal(adapter.draft('Browser excerpt'),'ok');assert.equal(state.draft,'Browser excerpt');assert.equal(state.sent,0);
+});
+test('widget extraction uses only HTML in the latest assistant reply', () => {
+  const {adapter,context}=page();const original=context.document.querySelectorAll;
+  context.TextEncoder=TextEncoder;
+  let replies=[{querySelectorAll(){return [{className:'language-html',textContent:'<h1>Widget</h1>'}];}}];
+  context.document.querySelectorAll=selector=>selector.includes('data-message-author-role')?replies:original(selector);
+  assert.equal(adapter.latestHtml(),'<h1>Widget</h1>');
+  replies.push({querySelectorAll(){return [];},innerText:'Just an explanation.'});
+  assert.equal(adapter.latestHtml(),'no-widget-html');
+  replies=[{querySelectorAll(){return [];},innerText:'```html\n<section>Latest</section>\n```'}];
+  assert.equal(adapter.latestHtml(),'<section>Latest</section>\n');
+});
+test('oversized UTF-8 widget code is rejected instead of silently truncated', () => {
+  const {adapter,context}=page();context.TextEncoder=TextEncoder;
+  context.document.querySelectorAll=()=>[{querySelectorAll(){return [{className:'language-html',textContent:'<div>'+ '🧩'.repeat(40000)+'</div>'}];}}];
+  assert.equal(adapter.latestHtml(),'widget-too-large');
+});

@@ -22,7 +22,7 @@ class RoomLayoutTest {
         }
     }
     @Test fun unsupportedVersionCannotSilentlyOverwriteRooms() {
-        rejected { RoomLayoutCodec.decode(RoomLayoutCodec.encode(layout()).replace("\"version\":1", "\"version\":9"), room) }
+        rejected { RoomLayoutCodec.decode(RoomLayoutCodec.encode(layout()).replace("\"version\":2", "\"version\":9"), room) }
     }
     @Test fun duplicateWindowSlotsAreRejected() {
         val first = layout().windows.first()
@@ -36,7 +36,7 @@ class RoomLayoutTest {
     @Test fun invalidSizesAndExcessWindowsAreRejected() {
         val first = layout().windows.first()
         rejected { RoomLayoutCodec.encode(layout().copy(windows = listOf(first.copy(size = Float.NaN)))) }
-        rejected { RoomLayoutCodec.encode(layout().copy(windows = List(5) { WindowLayout(slot = it) })) }
+        rejected { RoomLayoutCodec.encode(layout().copy(windows = List(7) { WindowLayout(slot = it) })) }
     }
     @Test fun corruptAndOversizedJsonAreRejected() {
         rejected { RoomLayoutCodec.decode("{", room) }

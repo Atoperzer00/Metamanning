@@ -25,6 +25,23 @@
     return 'ok';
   }
   window.metamanning = {
+    draft(value) {
+      if (!editor()) return 'missing-composer';
+      if (pending || busy() || text()) return 'draft-present';
+      return write(value);
+    },
+    latestHtml() {
+      if (busy()) return 'reply-still-generating';
+      const replies = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+      const last = replies[replies.length - 1];
+      if (!last) return 'no-widget-html';
+      const blocks = [...last.querySelectorAll('pre code')];
+      let source = blocks.filter(block => /(?:language|lang)-html/i.test(block.className || '')).map(block => block.textContent).pop();
+      if (!source) source = blocks.map(block => block.textContent).filter(value => /^\s*(?:<!doctype html|<html|<style|<div|<section|<main|<h[1-6])/i.test(value)).pop();
+      if (!source) { const match = (last.innerText || '').match(/```(?:html|htm)\s*\n([\s\S]*?)```/i); source = match && match[1]; }
+      if (!source) return 'no-widget-html';
+      return new TextEncoder().encode(source).length > 128 * 1024 ? 'widget-too-large' : source;
+    },
     capabilities() {
       const form = formFor();
       return {composer: !!editor(), uploadsRequireLogin: loginRequired(form), photoInput: filesFor(form).length > 0};
