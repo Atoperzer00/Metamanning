@@ -1,6 +1,6 @@
 # Luma spatial second brain — capability sourcing and integration plan
 
-Status: research + first interaction implementation; **not Quest-device validated**. Preserve the existing Meta Spatial SDK 0.15 Android application and its account-based ChatGPT panels. Do not swap in a Unity host or import whole Unity applications.
+Status: native library, gestures, environments, and local share gates are implemented; **not Quest-device validated**. Preserve the existing Meta Spatial SDK 0.15 Android application and its account-based ChatGPT panels. Do not swap in a Unity host or import whole Unity applications.
 
 ## Experience principles
 
@@ -67,3 +67,14 @@ No external source has been copied by this branch. Source list is a candidate ma
 ## Release honesty
 
 Existing automated build checks are not physical Quest validation. This branch has not been compiled or tested on a headset. No external repositories were bulk imported. Keep it in a draft PR until native build, unit tests, headset acceptance, performance and license checks pass.
+
+## Implementation recorded on this line
+
+The native host is still `quest-lite/spatial`. Thoughts live in a local library with stable IDs, types, content references, links, provenance, privacy, and room-independent coordinates. Window panels stay capped at six; the library does not. Note cards are a bounded view of that library.
+
+- **Web-sling.** Menu **Pull here** still moves an existing panel to 1.05 m, unlocks it, and refuses a grabbed panel. Thought sling walks idle → aiming → selected → preview, shows a tether, and commits or cancels. Scrolling and grabbing do not complete it. Head and hand rays stay off until a headset test.
+- **Toss, constellation, focus, history, palace.** Named clusters preview a landing and do not delete. Fan-out is capped, searchable, and undoable. Focus dims other cards and windows and one action restores them. The event log is what time scrub reads. Room anchors restore only in the recognized room.
+- **Environments.** Passthrough, Calm observatory, and Bright design studio are bundled presets with licenses and a frame-time gate. There is no environment marketplace and no imported mesh pack. A missed frame budget returns to passthrough.
+- **Co-think, look-and-ask, retrieval, bench.** Sharing sends only host-approved, shareable thoughts. Conversations, camera references, and cookies are refused. Look-and-ask is opt-in, shows a capture indicator, and submits only as a reviewed draft. Retrieval does the same. The bench reuses browser and offline widget panels.
+
+Still blocked without a Quest: physical Pull here acceptance (hands, controllers, room save/reload, comfort), real head/hand-ray pinch, frame timing on device, and a second headset for co-think transport. The share payload is local; it is not a network session.
