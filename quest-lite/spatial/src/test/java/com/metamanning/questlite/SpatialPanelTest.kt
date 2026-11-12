@@ -32,6 +32,7 @@ class SpatialPanelTest {
             val opening = manifest.substring(start, manifest.indexOf('>', start))
             assertTrue(opening, opening.contains("android:theme=\"@style/SpatialPanelTheme\""))
             assertTrue(opening, opening.contains("android:exported=\"true\""))
+            assertTrue(opening, opening.contains("android:allowEmbedded=\"true\""))
             assertTrue(opening, opening.contains("android:excludeFromRecents=\"true\""))
         }
         val styles = File("../app/src/main/res/values/styles.xml").readText()

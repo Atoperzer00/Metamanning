@@ -9,6 +9,8 @@ import com.meta.spatial.toolkit.UIPanelSettings
  * Spatial SDK 0.15 builds an Android Surface only when `mips` is 1. [UIPanelSettings] leaves
  * the default of 4, so the image-reader surface stays null and the first scene frame throws
  * from `PanelSurface.getSurface` before TaskContainer can start the panel activity.
+ * The activity itself must also set `android:allowEmbedded`. TaskContainer's display is
+ * untrusted, and `android:exported` does not permit a launch onto that display.
  */
 class AndroidSurfacePanelSettings(private val delegate: UIPanelSettings) : PanelSettings {
     override fun toPanelConfigOptions(): PanelConfigOptions {
