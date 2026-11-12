@@ -16,7 +16,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      # v3 still defaults to the removed "tools" package, which fails sdkmanager before Gradle.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
