@@ -70,6 +70,31 @@ class ThoughtLibraryTest {
         assertEquals(Vec3(0f, 0f, 0f), library.requireThought(note.id).coordinates)
     }
 
+    @Test fun tossAndConstellationLeaveTheWallUntilUndo() {
+        val library = graph()
+        val note = library.create(ThoughtType.NOTE, "Pinned", "text", ThoughtPrivacy.PRIVATE, Vec3(0f, 0f, 0f), provenance())
+        val other = library.create(ThoughtType.CONCEPT, "Neighbor", "", ThoughtPrivacy.PRIVATE, Vec3(0.4f, 0f, 0f), provenance())
+        library.link(note.id, other.id, "related", "", provenance())
+        val cluster = library.createCluster("Board", Vec3(1.2f, 0f, 0.2f), provenance())
+        val room = UUID.randomUUID().toString()
+        val pin = Vec3(0.2f, 1.4f, 1f)
+        library.anchor(note.id, room, pin, listOf(1f, 0f, 0f, 0f), provenance())
+        library.anchor(other.id, room, Vec3(-0.4f, 1.2f, 1f), listOf(1f, 0f, 0f, 0f), provenance())
+        val preview = library.tossOnto(note.id, cluster.id)
+        library.commitToss(preview, provenance())
+        assertNull(library.anchorFor(note.id, room))
+        assertNotNull(library.anchorFor(other.id, room))
+        assertEquals(preview.landing, library.requireThought(note.id).coordinates)
+        library.undo()
+        assertEquals(pin, library.anchorFor(note.id, room)!!.position)
+        library.commitConstellation(note.id, provenance())
+        assertNull(library.anchorFor(note.id, room))
+        assertNull(library.anchorFor(other.id, room))
+        library.undo()
+        assertEquals(pin, library.anchorFor(note.id, room)!!.position)
+        assertEquals(2, library.thoughts().size)
+    }
+
     @Test fun namedTossIsDeterministicAndAFlickBreaksTiesByNameThenId() {
         val library = graph()
         val note = library.create(ThoughtType.NOTE, "Stone", "", ThoughtPrivacy.PRIVATE, Vec3(0f, 0f, 0f), provenance())
