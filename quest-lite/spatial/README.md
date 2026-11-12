@@ -6,7 +6,7 @@ This is the Quest 3 immersive implementation. It is separate from the earlier 2D
 
 See the [0.4 user guide](../../docs/METAMANNING_04_GUIDE.md) for the browser, HTML editor/templates, AI widget creation and closed-window recovery.
 
-The 0.5.3 development source opens the redesigned workspace menu and an Assistant panel immediately. If room recognition is unavailable, the panels remain usable in a temporary tracking-space workspace; room-specific saving and recovery become available after a room is recognized. The menu stays visible and can be recentered. This startup change has compiled and passed local tests, but has not yet been checked on a Quest. The downloadable 0.5.0 APK predates this change.
+The 0.5.3 development source opens passthrough, a small menu, and several linked thought cards at reading distance. Pull here, Recall, Fan out, and Focus are on each card. A conversation panel is opened from the menu, not at launch. If room recognition is unavailable, the thoughts remain usable in a temporary tracking-space workspace; room-specific saving and recovery become available after a room is recognized. This startup change has compiled and passed local tests, but has not yet been checked on a Quest. The downloadable 0.5.0 APK predates this change.
 
 The same APK also exposes **Luma Chat** under Unknown Sources. It opens the existing account-based chat in a standard Quest panel, so a user can still open a conversation if the immersive activity fails. It does not provide room placement or spatial widgets.
 
@@ -20,6 +20,7 @@ Assistant panels now have a **Voice** button that opens a visible voice control 
 - Named room layouts store each panel pose relative to the recognized MRUK room entity, keyed by the room's persistent UUID. They do not restore raw tracking-origin coordinates as physical anchors. Different/unrecognized rooms do not receive another room's windows. Conversation history and draft restoration are handled by the website and require the signed-in acceptance checks. Follow mode is temporary and does not overwrite the saved pinned position.
 - JSON layout export/import validates room identity, schema, window count, slot uniqueness, names, URLs, finite transforms and quaternion/size ranges. Import requires confirmation in the same recognized room. Corrupt saved layouts are preserved until an explicit room reset or valid import.
 - Per-window options: text zoom, live image interval (5–60 seconds), image limit (1–100), and custom camera question. Manual photos and speech transcripts are reviewed before submission. Live vision remains opt-in periodic image messages through the website UI.
+- Second brain: a local thought library separate from the six windows, with note cards, search, links, toss-to-cluster, sling preview, focus, undo, recall to reading distance, per-idea history, and room anchors. Desk, beside Recall, arranges open thoughts in the Jarvis arc, grid, or stack and keeps a focus timer and task checklist on the headset. Passthrough remains the default scene. Observatory and Design studio are curated packages (level of detail, lighting, occlusion, license, and a frame-time gate), not color presets, and there is no environment marketplace. Co-think is a host/guest session that sends only approved thoughts; conversations, cookies, camera references, and room anchors stay behind. That exchange is covered between two local sessions, not two physical headsets. Look-and-ask keeps a snapshot of a selected thought on the headset and only offers a reviewed draft. None of this has been exercised on a headset.
 
 ## Build and automated checks
 
@@ -35,7 +36,7 @@ npm --prefix quest-lite run test:widgets
 npm --prefix quest-lite run test:public
 ```
 
-The spatial APK is approximately 70 MB in this development configuration because it includes Meta's arm64 native engine/interaction/room libraries. It does not bundle Unity, Compose, downloaded environments, or a local AI model. The earlier 2D companion remains smaller, but has different spatial capabilities. Native symbols are not stripped in the current local build; no final footprint or performance claim is made.
+The spatial APK is approximately 70 MB in this development configuration because it includes Meta's arm64 native engine/interaction/room libraries. It does not bundle Unity, Compose, third-party environment meshes, or a local AI model. Two small original environment packages are included on the curated channel. The earlier 2D companion remains smaller, but has different spatial capabilities. Native symbols are not stripped in the current local build; no final footprint or performance claim is made.
 
 ## What still needs the Quest
 

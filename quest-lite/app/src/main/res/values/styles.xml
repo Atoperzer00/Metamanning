@@ -7,6 +7,14 @@
         <item name="android:navigationBarColor">#0B1019</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+    <!-- TaskContainer hosts panel activities on an external surface. An opaque phone theme cannot attach. -->
+    <style name="SpatialPanelTheme" parent="android:style/Theme.Black.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
     <string name="initial_status">Sign into ChatGPT. Camera sharing is off.</string>
     <string name="app_brand">Luma</string>
     <string name="app_subtitle">Your meta assistant</string>

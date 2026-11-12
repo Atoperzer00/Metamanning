@@ -1,6 +1,6 @@
 # Luma spatial second brain — capability sourcing and integration plan
 
-Status: research + first interaction implementation; **not Quest-device validated**. Preserve the existing Meta Spatial SDK 0.15 Android application and its account-based ChatGPT panels. Do not swap in a Unity host or import whole Unity applications.
+Status: native library, gestures, curated environment packages, and a co-think session path are implemented; **not Quest-device validated**. Preserve the existing Meta Spatial SDK 0.15 Android application and its account-based ChatGPT panels. Do not swap in a Unity host or import whole Unity applications.
 
 ## Experience principles
 
@@ -29,7 +29,7 @@ The native spatial workspace now offers **Pull here** per panel and **Pull this 
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) | Local inference experiments | Optional backend adapter or carefully benchmarked on-device model | MIT; RAM, thermals, battery constraints |
 | [Godot](https://github.com/godotengine/godot) | Alternative open 3D engine | Research only, not an extra runtime in Luma | MIT; architecture mismatch |
 
-No external source has been copied by this branch. Source list is a candidate manifest, not a completed license audit.
+No external source has been copied by this branch. The spatial desk reimplements Jarvis layout, pomodoro, and todo behavior in Kotlin; it does not vendor additional upstream files. Source list is a candidate manifest, not a completed license audit.
 
 ## Proposed interactions and quality gates
 
@@ -38,11 +38,11 @@ No external source has been copied by this branch. Source list is a candidate ma
 | Web-sling thought | Aim at a distant note, pinch and draw it toward you with a tether | Existing **Pull here** fallback; later SDK hand-ray + visible tether | Must never activate during ordinary scroll or grab; cancelable |
 | Thought toss | Flick a note toward a named cluster or board | Deterministic target preview, then commit | Undo, no accidental deletion |
 | Constellation | Expand one idea into linked concepts in 3D | Local graph store + spatial layout | Stable IDs, search, evidence links, bounded node count |
-| Thought portal | Walk or select between distinct thinking environments | Passthrough + curated environment presets | Comfort, high fidelity, Quest frame budget |
+| Thought portal | Walk or select between distinct thinking environments | Passthrough plus two licensed packages with level of detail, lighting, occlusion, and a frame-time gate | Comfort, high fidelity, Quest frame budget |
 | Memory palace | Anchor notes to recognized physical room locations | Extend existing MRUK room persistence | Relocalization and room privacy checks |
 | Focus bubble | Dim unrelated content and gather relevant cards | Reversible visibility filter | One-action exit, never lose work |
 | Time scrub | Explore how a project or idea changed | Event log with provenance and undo | History accurately reflects stored events |
-| Co-think | Share selected nodes with a second Quest | Explicit session permissions and sync | No automatic sharing of private conversations |
+| Co-think | Share selected nodes with a second Quest | Host/guest session; the guest receives only approved nodes | No automatic sharing of private conversations |
 | Look-and-ask | Select a real object and ask AI for contextual explanation | Opt-in snapshot pipeline | Clear capture indicators, explicit submission |
 | Build bench | Pull diagrams, docs and code into a spatial workbench | Reuse existing browser/widget panels | Offline widgets and secure browser separation |
 
@@ -67,3 +67,17 @@ No external source has been copied by this branch. Source list is a candidate ma
 ## Release honesty
 
 Existing automated build checks are not physical Quest validation. This branch has not been compiled or tested on a headset. No external repositories were bulk imported. Keep it in a draft PR until native build, unit tests, headset acceptance, performance and license checks pass.
+
+## Implementation recorded on this line
+
+The native host is still `quest-lite/spatial`. Thoughts live in a local library with stable IDs, types, content references, links, provenance, privacy, and room-independent coordinates. Window panels stay capped at six; the library does not. Note cards are a bounded view of that library.
+
+- **Web-sling.** Menu **Pull here** still moves an existing panel to 1.05 m, unlocks it, and refuses a grabbed panel. On a thought, **Pull here** moves that object to the center of the reading plane. Thought sling walks idle → aiming → selected → preview, shows a tether, and commits or cancels. Scrolling and grabbing do not complete it. **Recall thoughts** returns open, unpinned cards to that same reading plane and leaves a grabbed card or a room-anchored card where it is. Focus has to be cleared first. The first scene does not open a chat panel. Head and hand rays stay off until a headset test.
+- **Toss, constellation, focus, history, palace.** Named clusters preview a landing and do not delete. Fan-out is capped, searchable, and undoable, and a press on a thought moves its linked cards in front of the user. Focus hides the thoughts that are not part of that idea, and Exit focus brings them back. The event log is what time scrub reads. With a thought selected, History lists that idea's own changes, including the title and note after each step, and does not append a scrub event. Room anchors restore only in the recognized room.
+- **Opening scene.** Passthrough stays up. An empty library gets four linked thoughts, placed apart at reading distance, each with Pull here, Recall, Fan out, and Focus on the card. Those controls are also the first rows of the menu. A headset check of this scene has not been done.
+- **Environments.** Passthrough stays the default. Calm observatory and Bright design studio are licensed packages on the curated channel: original geometry, at least two levels of detail, lights, and occlusion volumes. Installing one checks the package hash, license, and frame budget. A missed budget, or a level of detail that does not fit, returns to passthrough. There is no environment marketplace and no imported mesh pack. The packages ship with the app; a unit test also transfers those bytes across a loopback socket. Frame time on a headset is still unmeasured.
+- **Co-think.** The host opens a session and approves specific thoughts. A guest joins with that session id and receives only those thoughts and the links between them. Conversations, cookies, camera references, room anchors, and anything not approved stay behind. A guest cannot push objects onto the host. Two sessions on the loopback address are covered by a unit test. Two physical headsets have not been tested.
+- **Look-and-ask, retrieval, bench.** Look-and-ask is opt-in, shows a capture indicator, and keeps a bounded snapshot of one selected thought. The snapshot bytes stay on the headset; the reviewed draft names the object and does not claim website tool access. Retrieval does the same. The bench reuses browser and offline widget panels.
+- **Jarvis desk.** Arc, grid, and stack follow the imported Jarvis `LayoutArranger`, then sit on the seated reading plane. Desk is on the menu beside Recall. A focus timer follows the Jarvis pomodoro schema, including the long break after four sessions, and keeps running from a saved deadline while the headset is asleep. Task steps follow the Jarvis todo item shape, live in the thought itself, and undo with the rest of the library. The opening task is one of those checklists. No Jarvis backend is contacted, and head and hand rays stay off.
+
+Still blocked without a Quest: physical Pull here acceptance (hands, controllers, room save/reload, comfort), real head/hand-ray pinch, frame timing on device, and a second physical headset. Head and hand rays stay off. Slice A is not device-tested. This stays a draft until a headset accepts it.
