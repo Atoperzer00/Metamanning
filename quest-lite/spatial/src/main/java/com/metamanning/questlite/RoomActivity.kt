@@ -107,15 +107,14 @@ class RoomActivity : AppSystemActivity() {
         repeat(RoomLayoutCodec.MAX_WINDOWS) { slot ->
             registrations += IntentPanelRegistration(CHAT_BASE + slot, intentCreator = {
                 val saved = requireNotNull(windows[slot]).saved
-                val target = when (saved.kind) { "browser" -> BrowserActivity::class.java; "widget" -> WidgetActivity::class.java; else -> MainActivity::class.java }
-                Intent(this, target).apply {
+                Intent(this, windowPanelActivity(saved.kind)).apply {
                     data = Uri.parse("metamanning://window/${saved.id}")
                     putExtra("spatial_panel", true); putExtra("window_id", saved.id)
                     putExtra("widget_html", saved.html); putExtra("widget_network", saved.network);
                     putExtra("window_title", saved.title); putExtra("initial_hidden", saved.hidden); putExtra("initial_url", saved.url)
                 }
             }, settingsCreator = {
-                UIPanelSettings(shape = QuadShapeOptions(width = 1.1f, height = 0.9f), display = DpDisplayOptions(1000f, 820f), style = PanelStyleOptions(R.style.MetamanningTheme))
+                AndroidSurfacePanelSettings(UIPanelSettings(shape = QuadShapeOptions(width = 1.1f, height = 0.9f), display = DpDisplayOptions(1000f, 820f), style = PanelStyleOptions(R.style.SpatialPanelTheme)))
             })
         }
         return registrations
