@@ -36,6 +36,8 @@ class ThoughtWorldTest {
         assertTrue(spots.all { it != OpeningScene.PULL_HOME })
         assertTrue(spots.zip(ReadingArc.seats(4)).all { (placed, seat) -> (placed - seat).length() > 0.2f })
         assertTrue(spots.all { ReadingArc.comfortable(PullPolicy.DISTANCE_M + it.z) })
+        assertEquals("Board", library.clusters().single().name)
+        assertEquals(OpeningScene.BOARD, library.clusters().single().anchor)
         val question = ids[2]
         val steps = TaskSteps.read(library.requireThought(question).contentRef)
         assertEquals(listOf("remember", "source"), steps?.map { it.id })

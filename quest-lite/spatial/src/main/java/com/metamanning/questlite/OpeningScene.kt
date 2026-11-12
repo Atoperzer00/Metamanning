@@ -10,11 +10,14 @@ object OpeningScene {
     val PULL_HOME = Vec3(0f, 0f, 0f)
 
     private val spread = listOf(
-        Vec3(0f, 0.12f, 0.7f),
-        Vec3(-0.72f, -0.05f, 0.2f),
-        Vec3(0.72f, -0.05f, 0.2f),
-        Vec3(0.05f, 0.28f, 0.4f),
+        Vec3(-1.11f, 0.02f, 0.05f),
+        Vec3(-0.37f, 0.04f, 0.35f),
+        Vec3(0.37f, 0.04f, 0.35f),
+        Vec3(1.11f, 0.02f, 0.05f),
     )
+
+    /** A place a toss can land in the first scene, above the row of thoughts. */
+    val BOARD = Vec3(0f, 0.62f, 0.7f)
 
     fun spread(count: Int): List<Vec3> {
         require(count in 1..spread.size) { "The opening scene shows at most four thoughts" }
@@ -53,6 +56,7 @@ object OpeningScene {
         graph.link(root.id, reading.id, "related", "", provenance("opening"))
         graph.link(root.id, question.id, "related", "", provenance("opening"))
         graph.link(root.id, evidence.id, "evidence", "field note", provenance("opening"))
+        graph.createCluster("Board", BOARD, provenance("opening"))
         return listOf(root.id, reading.id, question.id, evidence.id)
     }
 

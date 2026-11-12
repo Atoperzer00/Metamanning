@@ -345,7 +345,12 @@ class ThoughtGraph(private val clock: () -> Long, private val ids: () -> String 
             val current = requireThought(node.thought.id)
             current.copy(coordinates = node.position, updatedAt = maxOf(provenance.atMillis, current.createdAt))
         }
-        record("constellation", rootId, provenance, GraphDelta(thoughts = previous), GraphDelta(thoughts = moved))
+        val pins = anchors.values.filter { anchor -> layout.nodes.any { it.thought.id == anchor.thoughtId } }
+        record(
+            "constellation", rootId, provenance,
+            GraphDelta(thoughts = previous, anchors = pins),
+            GraphDelta(thoughts = moved, removeAnchors = pins.map { it.key() }),
+        )
         val refreshed = layout.nodes.map { node -> node.copy(thought = requireThought(node.thought.id), position = requireThought(node.thought.id).coordinates) }
         return layout.copy(nodes = refreshed)
     }
@@ -379,7 +384,12 @@ class ThoughtGraph(private val clock: () -> Long, private val ids: () -> String 
         require(cluster.name == preview.clusterName && preview.landing == cluster.anchor + stableOffset(preview.thoughtId)) { "Toss preview is stale" }
         val old = requireThought(preview.thoughtId)
         val next = old.copy(clusterId = preview.clusterId, coordinates = preview.landing, updatedAt = maxOf(provenance.atMillis, old.createdAt))
-        record("toss", old.id, provenance, GraphDelta(thoughts = listOf(old)), GraphDelta(thoughts = listOf(next)))
+        val pins = anchors.values.filter { it.thoughtId == old.id }
+        record(
+            "toss", old.id, provenance,
+            GraphDelta(thoughts = listOf(old), anchors = pins),
+            GraphDelta(thoughts = listOf(next), removeAnchors = pins.map { it.key() }),
+        )
         return requireThought(old.id)
     }
 

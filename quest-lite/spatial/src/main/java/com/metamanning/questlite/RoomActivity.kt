@@ -17,6 +17,7 @@ import android.widget.*
 import com.meta.spatial.core.*
 import com.meta.spatial.core.Entity
 import com.meta.spatial.mruk.*
+import com.meta.spatial.runtime.ButtonBits
 import com.meta.spatial.runtime.ReferenceSpace
 import com.meta.spatial.toolkit.*
 import com.meta.spatial.vr.LocomotionSystem
@@ -41,18 +42,45 @@ class RoomActivity : AppSystemActivity() {
     private var message = "Luma is starting…"
     private val windows = mutableMapOf<Int, OpenWindow>()
     private val brain = SecondBrain()
+    private val motion = ThoughtMotion()
+    private val sceneLive = AtomicBoolean(false)
+    private val controllerEdges = java.util.concurrent.ConcurrentLinkedQueue<ControllerEdge>()
+    private val tetherBeads = mutableListOf<Entity>()
+    private val linkBars = mutableListOf<Entity>()
+    private var landingMarker: Entity? = null
+    private var propsFailed = false
+    private var onArrived: (() -> Unit)? = null
+    private var commitWhenArrived: (() -> Unit)? = null
+    private var tossInFlight: TossPreview? = null
+    private val openedForMotion = mutableListOf<String>()
+    private var stagingFocus: FocusBubble? = null
+    private val focusTracks = mutableListOf<CardTrack>()
+    private val windowHomes = linkedMapOf<String, Pose>()
+    private var windowDimFrom = 0f
+    private var windowDimTo = 0f
+    private var motionClock = 0L
+    private var returnMessage = "Canceled. The thoughts are back where they were."
     private val thoughtViews = mutableMapOf<Int, OpenThought>()
     private var thoughtStatus: TextView? = null
     private var environmentSwatch: TextView? = null
     private var environmentInstaller: EnvironmentInstaller? = null
     private var coThinkHost: CoThinkHost? = null
     private var scrollQuietUntil = 0L
-    private var slingSlot: Int? = null
-    private var slingSpring = SpringBody(Vec3(0f, 0f, 0f), Vec3(0f, 0f, 0f))
-    private var slingTarget = Vec3(0f, 0f, 0f)
     private val prefs by lazy { getSharedPreferences("room-workspaces-v1", MODE_PRIVATE) }
     private data class OpenWindow(var saved: WindowLayout, val entity: Entity, var follow: Boolean = false, var wasGrabbed: Boolean = false)
-    private data class OpenThought(val thoughtId: String, val slot: Int, val entity: Entity, var titleView: TextView? = null, var detailView: TextView? = null, var focusButton: Button? = null)
+    private data class OpenThought(
+        val thoughtId: String,
+        val slot: Int,
+        val entity: Entity,
+        var root: View? = null,
+        var titleView: TextView? = null,
+        var detailView: TextView? = null,
+        var stepsHost: LinearLayout? = null,
+        var timerView: TextView? = null,
+        var pauseButton: Button? = null,
+        var focusButton: Button? = null,
+    )
+    private data class ControllerEdge(val origin: Vec3, val forward: Vec3, val pressed: Int)
     private val events = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent) {
             if (intent.action != "$packageName.WORKSPACE_EVENT" || shuttingDown) return
@@ -101,7 +129,7 @@ class RoomActivity : AppSystemActivity() {
                 val openSlot = thoughtViews.entries.firstOrNull { it.value.entity.id == entity.id }?.key
                 if (openSlot == null) TextView(context).apply { text = "Thought" } else buildThoughtCard(openSlot, context)
             }, settingsCreator = {
-                UIPanelSettings(shape = QuadShapeOptions(width = 0.62f, height = 0.48f), display = DpDisplayOptions(680f, 520f), style = PanelStyleOptions(R.style.MetamanningTheme))
+                UIPanelSettings(shape = QuadShapeOptions(width = 0.66f, height = 0.72f), display = DpDisplayOptions(680f, 760f), style = PanelStyleOptions(R.style.MetamanningTheme))
             })
         }
         repeat(RoomLayoutCodec.MAX_WINDOWS) { slot ->
@@ -132,6 +160,7 @@ class RoomActivity : AppSystemActivity() {
                 lastExecute = now
                 if (now - last < 33 || !queued.compareAndSet(false, true)) return
                 last = now
+                runCatching { sampleControllers() }
                 runOnUiThread {
                     try {
                         if (frameDt > 0f) brain.frames.add(frameDt)
@@ -161,6 +190,7 @@ class RoomActivity : AppSystemActivity() {
         menu.t.y -= 0.35f
         managerEntity = Entity.create(listOf(Panel(MANAGER), Transform(menu), Grabbable()))
         presentOpeningScene()
+        sceneLive.set(true)
         if (checkSelfPermission(SCENE_PERMISSION) == PackageManager.PERMISSION_GRANTED) loadRooms()
         else requestPermissions(arrayOf(SCENE_PERMISSION), SCENE_REQUEST)
     }
@@ -180,7 +210,7 @@ class RoomActivity : AppSystemActivity() {
         if (recognized?.anchor?.uuid != room?.anchor?.uuid || recognized?.entity?.id != room?.entity?.id) changeRoom(recognized)
         var released = false
         for (window in windows.values) {
-            if (window.follow && !window.saved.hidden) {
+            if (window.follow && !window.saved.hidden && brain.focus == null && stagingFocus == null) {
                 val target = roomLocal(frontPose(0f, 1.3f))
                 val current = window.entity.getComponent<Transform>().transform
                 window.entity.setComponent(Transform(current.lerp(target, 0.08f)))
@@ -190,8 +220,10 @@ class RoomActivity : AppSystemActivity() {
             window.wasGrabbed = grabbed
         }
         if (released) saveRoom()
-        stepSling()
+        stepSceneMotion()
+        drainControllers()
         syncDesk(announce = true)
+        syncLinks()
         if (brain.environmentId != "passthrough" && brain.frames.exceeded()) selectEnvironment("passthrough")
     }
     private fun changeRoom(next: MRUKRoom?) {
@@ -242,7 +274,7 @@ class RoomActivity : AppSystemActivity() {
     private fun roomLocal(world: Pose): Pose = if (room == null) world else roomPose().inverse() * world
     private fun frontPose(side: Float = 0f, distance: Float = 1.3f): Pose {
         val head = scene.getViewerPose().removePitchAndRoll()
-        val result = head * Pose(Vector3(side, -0.12f, distance))
+        val result = head * Pose(Vector3(side, -ReadingFrame.EYE_DROP_M, distance))
         val direction = Vector3(result.t.x - head.t.x, 0f, result.t.z - head.t.z)
         result.q = Quaternion.lookRotation(direction)
         return result
@@ -324,7 +356,7 @@ class RoomActivity : AppSystemActivity() {
         if (room == null) setMessage("Temporary workspace ready. Set up a room when you want windows to return here later.")
     }
     private fun snapshot(window: OpenWindow): WindowLayout {
-        val pose = window.entity.getComponent<Transform>().transform
+        val pose = windowHomes[window.saved.id] ?: window.entity.getComponent<Transform>().transform
         return window.saved.copy(position = listOf(pose.t.x, pose.t.y, pose.t.z), rotation = listOf(pose.q.w, pose.q.x, pose.q.y, pose.q.z))
     }
     private fun currentLayout(): RoomLayout {
@@ -434,7 +466,7 @@ class RoomActivity : AppSystemActivity() {
             }) }
             column.addView(line)
         }
-        section("In reach", "Controller actions on the thoughts in front of you")
+        section("In reach", "Controller and menu move the thoughts in front of you")
         row("Pull here" to { selectedThought()?.let { pullThoughtHere(it.id) } }, "Recall" to { recallThoughts() })
         row("Fan out" to { selectedThought()?.let { fanOutNow(it.id) } }, "Focus" to {
             val id = brain.selectedId
@@ -457,7 +489,7 @@ class RoomActivity : AppSystemActivity() {
                 window.entity.setComponent(Visible(true)); window.entity.setComponent(Grabbable(enabled = !window.saved.locked)); control(window, "resume")
             }; saveRoom(); refreshControls()
         }, "Recenter menu" to { recallManager() })
-        section("Second brain", "Local thoughts. A panel is only a view of one.")
+        section("Second brain", "Cards move in the scene. A slings, B cancels, X tosses, Y fans or collapses, stick click focuses. The menu does the same. Head and hand rays stay off.")
         environmentSwatch = TextView(context).apply {
             textSize = 14f; setPadding(ShellStyle.dp(context, 12), ShellStyle.dp(context, 8), ShellStyle.dp(context, 12), ShellStyle.dp(context, 8))
         }
@@ -692,11 +724,26 @@ class RoomActivity : AppSystemActivity() {
         if (sceneReady) recallManager()
         windows.values.filter { !it.saved.hidden }.forEach { control(it, "resume") }
     }
-    override fun onPause() { active = false; placementHandler.removeCallbacksAndMessages(null); saveRoom(); saveBrain(); saveDesk(); windows.values.forEach { control(it, "pause") }; super.onPause() }
+    override fun onPause() {
+        active = false
+        placementHandler.removeCallbacksAndMessages(null)
+        abandonMotion()
+        saveRoom(); saveBrain(); saveDesk()
+        windows.values.forEach { control(it, "pause") }
+        super.onPause()
+    }
     override fun onSpatialShutdown() {
+        sceneLive.set(false)
         runCatching { coThinkHost?.close() }; coThinkHost = null
+        abandonMotion()
         saveRoom(); saveBrain(); saveDesk(); shuttingDown = true; sceneReady = false
         windows.values.toList().forEach { destroyPanel(it) }; windows.clear()
+        tetherBeads.forEach { runCatching { it.destroy() } }
+        tetherBeads.clear()
+        linkBars.forEach { runCatching { it.destroy() } }
+        linkBars.clear()
+        runCatching { landingMarker?.destroy() }
+        landingMarker = null
         super.onSpatialShutdown()
     }
     override fun onDestroy() {
@@ -723,7 +770,7 @@ class RoomActivity : AppSystemActivity() {
         }
         ids.forEach { openThoughtCard(it) }
         brain.selectedId = ids.firstOrNull()
-        setMessage("Passthrough is on. Pull here, Recall, Fan out, and Focus are on each thought. Desk arranges them and keeps a focus timer.")
+        setMessage("Passthrough is on. The note, steps, timer, and arc, grid, or stack are on each thought. Pull here draws it in.")
         loadDesk()
         syncDesk(false)
     }
@@ -766,6 +813,11 @@ class RoomActivity : AppSystemActivity() {
         if (label != shownDesk) {
             shownDesk = label
             refreshThoughtStatus()
+            val pause = if (brain.desk.state == FocusRun.PAUSED) "Resume" else "Pause"
+            thoughtViews.values.forEach { open ->
+                open.timerView?.text = label
+                open.pauseButton?.text = pause
+            }
         }
     }
 
@@ -836,20 +888,24 @@ class RoomActivity : AppSystemActivity() {
         val open = thoughtViews[slot]
         val column = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(ShellStyle.dp(context, 14), ShellStyle.dp(context, 12), ShellStyle.dp(context, 14), ShellStyle.dp(context, 12))
+            setPadding(ShellStyle.dp(context, 14), ShellStyle.dp(context, 10), ShellStyle.dp(context, 14), ShellStyle.dp(context, 10))
             background = ShellStyle.panel(context, "#121E2D", "#315266", 16)
         }
         val title = TextView(context).apply { textSize = 18f; setTextColor(Color.WHITE); setTypeface(null, android.graphics.Typeface.BOLD) }
-        val detail = TextView(context).apply { textSize = 13f; setTextColor(Color.parseColor("#A5BDD1")); setPadding(0, 0, 0, ShellStyle.dp(context, 6)) }
-        open?.titleView = title
-        open?.detailView = detail
-        bindThoughtCard(slot)
-        column.addView(title); column.addView(detail)
+        val detail = TextView(context).apply {
+            textSize = 14f
+            setTextColor(Color.parseColor("#E7F0F8"))
+            maxLines = 4
+            setPadding(0, ShellStyle.dp(context, 4), 0, ShellStyle.dp(context, 4))
+        }
+        val steps = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        val timerLine = LinearLayout(context)
+        val timer = TextView(context).apply { textSize = 13f; setTextColor(Color.parseColor("#C8F5D4")) }
         fun cardAction(label: String, onClick: (String) -> Unit): Button {
             return Button(context).apply {
                 text = label
                 ShellStyle.button(context, this, label)
-                textSize = 14f
+                textSize = 13f
                 setOnClickListener {
                     val thoughtId = thoughtViews[slot]?.thoughtId ?: return@setOnClickListener
                     brain.selectedId = thoughtId
@@ -857,21 +913,40 @@ class RoomActivity : AppSystemActivity() {
                 }
             }
         }
-        fun actionRow(left: Button, right: Button) {
+        val pause = cardAction(if (brain.desk.state == FocusRun.PAUSED) "Resume" else "Pause") { pauseOrResumeFocus() }
+        timerLine.addView(timer, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        timerLine.addView(cardAction("Start") { startFocusTimer() }, LinearLayout.LayoutParams(0, ShellStyle.dp(context, 44), 0.7f))
+        timerLine.addView(pause, LinearLayout.LayoutParams(0, ShellStyle.dp(context, 44), 0.7f))
+        open?.root = column
+        open?.titleView = title
+        open?.detailView = detail
+        open?.stepsHost = steps
+        open?.timerView = timer
+        open?.pauseButton = pause
+        column.addView(title)
+        column.addView(detail)
+        column.addView(steps)
+        column.addView(timerLine)
+        fun actionRow(buttons: List<Button>) {
             val line = LinearLayout(context)
-            val params = LinearLayout.LayoutParams(0, ShellStyle.dp(context, 52), 1f).apply {
+            val params = LinearLayout.LayoutParams(0, ShellStyle.dp(context, 46), 1f).apply {
                 marginStart = ShellStyle.dp(context, 2); marginEnd = ShellStyle.dp(context, 2); topMargin = ShellStyle.dp(context, 4)
             }
-            line.addView(left, params); line.addView(right, params)
+            buttons.forEach { line.addView(it, params) }
             column.addView(line)
         }
-        actionRow(
-            cardAction("Pull here") { pullThoughtHere(it) },
-            cardAction("Recall") { recallThoughts() },
-        )
         val focus = cardAction("Focus") { focusNow(it) }
         open?.focusButton = focus
-        actionRow(cardAction("Fan out") { fanOutNow(it) }, focus)
+        actionRow(listOf(
+            cardAction("Pull here") { beginSling(it, RaySource.MENU, Vec3(0.18f, -0.35f, -0.55f)) },
+            cardAction("Fan out") { fanOutNow(it) },
+        ))
+        actionRow(listOf(focus, cardAction("Toss") { tossThought(it) }))
+        actionRow(listOf(
+            cardAction("Arc") { arrangeThoughts("arc") },
+            cardAction("Grid") { arrangeThoughts("grid") },
+            cardAction("Stack") { arrangeThoughts("stack") },
+        ))
         bindThoughtCard(slot)
         return column
     }
@@ -885,12 +960,54 @@ class RoomActivity : AppSystemActivity() {
             ThoughtType.TASK -> "#B7F0C8"
             else -> "#FFFFFF"
         }))
-        val steps = TaskSteps.peek(thought.contentRef)?.let { " · ${TaskSteps.progress(it)}" }.orEmpty()
-        open.detailView?.text = "${thought.type.name.lowercase()} · ${thought.privacy.name.lowercase()}$steps"
-        open.focusButton?.text = if (brain.focus?.rootId == open.thoughtId) "Exit focus" else "Focus"
+        val steps = TaskSteps.peek(thought.contentRef)
+        open.detailView?.text = if (steps != null) TaskSteps.progress(steps) else thought.contentRef.ifBlank { thought.type.name.lowercase() }
+        fillSteps(open, thought, steps)
+        open.timerView?.text = FocusClock.label(brain.desk, System.currentTimeMillis())
+        open.pauseButton?.text = if (brain.desk.state == FocusRun.PAUSED) "Resume" else "Pause"
+        val focused = brain.focus?.rootId == open.thoughtId || stagingFocus?.rootId == open.thoughtId
+        open.focusButton?.text = if (focused) "Exit focus" else "Focus"
+        open.root?.alpha = cardAlpha(open.thoughtId)
+    }
+
+    private fun fillSteps(open: OpenThought, thought: Thought, steps: List<TaskItem>?) {
+        val host = open.stepsHost ?: return
+        host.removeAllViews()
+        if (steps == null) return
+        val context = host.context
+        steps.forEach { item ->
+            val row = LinearLayout(context)
+            val mark = Button(context).apply {
+                text = if (item.done) "Done" else "Check"
+                textSize = 12f
+                ShellStyle.button(context, this, text.toString())
+                setOnClickListener {
+                    brain.selectedId = thought.id
+                    runCatching {
+                        brain.graph.update(thought.id, brainProvenance("steps")) { current ->
+                            current.copy(contentRef = TaskSteps.toggle(current.contentRef, item.id))
+                        }
+                    }.onSuccess {
+                        saveBrain()
+                        bindThoughtCard(open.slot)
+                        setMessage(if (item.done) "Reopened ${item.text}." else "Checked ${item.text}.")
+                    }.onFailure { setMessage(it.message ?: "That step was not changed.") }
+                }
+            }
+            val label = TextView(context).apply {
+                text = item.text
+                textSize = 14f
+                setTextColor(Color.parseColor(if (item.done) "#7E93A8" else "#E7F0F8"))
+                setPadding(ShellStyle.dp(context, 8), 0, 0, 0)
+            }
+            row.addView(mark, LinearLayout.LayoutParams(ShellStyle.dp(context, 92), ShellStyle.dp(context, 40)))
+            row.addView(label, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            host.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ShellStyle.dp(context, 4) })
+        }
     }
 
     private fun placeThought(open: OpenThought) {
+        if (motion.controls(open.thoughtId)) return
         val thought = brain.graph.find(open.thoughtId) ?: return
         val parent = room?.entity
         val roomId = room?.anchor?.uuid?.toString()
@@ -902,6 +1019,8 @@ class RoomActivity : AppSystemActivity() {
         open.entity.setComponent(Transform(pose))
         open.entity.setComponent(Visible(true))
         open.entity.setComponent(Grabbable(enabled = true))
+        open.entity.setComponent(Scale(Vector3(1f)))
+        open.root?.alpha = 1f
     }
 
     private fun openThoughtCard(thoughtId: String): OpenThought? {
@@ -930,6 +1049,7 @@ class RoomActivity : AppSystemActivity() {
     }
 
     private fun relayoutThoughts() {
+        abandonMotion()
         val ids = thoughtViews.values.map { it.thoughtId }
         thoughtViews.values.toList().forEach { destroyThoughtCard(it) }
         ids.filter { brain.graph.find(it) != null }.forEach { openThoughtCard(it) }
@@ -968,61 +1088,52 @@ class RoomActivity : AppSystemActivity() {
 
     private fun slingSelected() {
         val thought = selectedThought() ?: return
-        if (brain.gestures.phase != GesturePhase.IDLE) { setMessage("Finish or cancel the current gesture."); return }
-        val open = openThoughtCard(thought.id) ?: return
-        val preview = brain.gestures.menuPreview(GestureKind.WEB_SLING, thought.id, SystemClock.uptimeMillis() < scrollQuietUntil, anythingGrabbed())
-        if (!preview.ok) { setMessage(preview.reason); return }
-        val targetPose = roomLocal(frontPose(0f, PullPolicy.DISTANCE_M))
-        slingTarget = Vec3(targetPose.t.x, targetPose.t.y, targetPose.t.z)
-        val current = open.entity.getComponent<Transform>().transform
-        slingSpring = SpringBody(Vec3(current.t.x, current.t.y, current.t.z), Vec3(0f, 0f, 0f))
-        slingSlot = open.slot
-        AlertDialog.Builder(this).setTitle("Pull ${thought.title} here?")
-            .setMessage("The tether is a preview. Commit keeps it at reading distance. Cancel puts it back. Scrolling or grabbing cancels it.")
-            .setPositiveButton("Commit") { _, _ -> commitSling(thought.id) }
-            .setNegativeButton("Cancel") { _, _ -> cancelSling() }
-            .setOnCancelListener { cancelSling() }
-            .show()
+        beginSling(thought.id, RaySource.MENU, Vec3(0.18f, -0.35f, -0.55f))
     }
 
-    private fun stepSling() {
-        val slot = slingSlot ?: return
-        if (brain.gestures.phase != GesturePhase.PREVIEW || brain.gestures.kind != GestureKind.WEB_SLING) return
-        val open = thoughtViews[slot] ?: return
-        val interrupted = brain.gestures.interrupt(SystemClock.uptimeMillis() < scrollQuietUntil, anythingGrabbed())
-        if (brain.gestures.phase == GesturePhase.IDLE) {
-            slingSlot = null; placeThought(open); setMessage(interrupted.reason); return
-        }
-        slingSpring = TetherSpring.step(slingSpring, slingTarget, 0.033f)
-        val position = slingSpring.position
-        val rotation = open.entity.getComponent<Transform>().transform.q
-        open.entity.setComponent(Transform(Pose(Vector3(position.x, position.y, position.z), rotation)))
+    private fun beginSling(thoughtId: String, source: RaySource, origin: Vec3) {
+        if (!beginAllowed()) return
+        val thought = brain.graph.find(thoughtId) ?: return
+        val open = thoughtViews.values.firstOrNull { it.thoughtId == thoughtId } ?: openThoughtCard(thoughtId) ?: return
+        val preview = previewGesture(GestureKind.WEB_SLING, source, thoughtId)
+        if (!preview.ok) { setMessage(preview.reason); return }
+        brain.selectedId = thoughtId
+        motion.beginSling(thoughtId, shownLibrary(open), OpeningScene.PULL_HOME, origin)
+        arm(motion.frame())
+        setMessage("Tether on ${thought.title}. Commit keeps it. Cancel springs it back.")
+        if (source == RaySource.MENU) confirmMotion(
+            "Pull ${thought.title} here?",
+            "The tether draws it to reading distance. Commit keeps it there. Cancel springs it back. Scrolling or grabbing cancels it.",
+        )
     }
 
     private fun commitSling(thoughtId: String) {
-        val result = brain.gestures.commit(SystemClock.uptimeMillis() < scrollQuietUntil, anythingGrabbed())
-        slingSlot = null
+        motion.stop()
+        motionClock = 0L
+        hideProps()
+        val result = brain.gestures.commit(menuScrolling(), anythingGrabbed())
         val open = thoughtViews.values.firstOrNull { it.thoughtId == thoughtId }
-        if (!result.committed) { if (open != null) placeThought(open); setMessage(result.reason); return }
+        if (!result.committed) {
+            if (open != null) placeThought(open)
+            setMessage(result.reason)
+            refreshThoughtStatus()
+            return
+        }
         val roomId = room?.anchor?.uuid?.toString()
         runCatching {
             if (roomId != null && brain.graph.anchorFor(thoughtId, roomId) != null) {
                 val pose = roomLocal(frontPose(0f, PullPolicy.DISTANCE_M))
                 brain.graph.anchor(thoughtId, roomId, Vec3(pose.t.x, pose.t.y, pose.t.z), listOf(pose.q.w, pose.q.x, pose.q.y, pose.q.z), brainProvenance("sling"))
-            } else brain.graph.move(thoughtId, Vec3(0f, 0f, 0f), brainProvenance("sling"))
+            } else brain.graph.move(thoughtId, OpeningScene.PULL_HOME, brainProvenance("sling"))
         }.onSuccess {
-            saveBrain(); if (open != null) placeThought(open); setMessage("Committed the pull. Undo returns the thought.")
-        }.onFailure { if (open != null) placeThought(open); setMessage(it.message ?: "The pull was not saved.") }
+            saveBrain()
+            if (open != null) placeThought(open)
+            setMessage("Committed the pull. Undo returns the thought.")
+        }.onFailure {
+            if (open != null) placeThought(open)
+            setMessage(it.message ?: "The pull was not saved.")
+        }
         refreshThoughtStatus()
-    }
-
-    private fun cancelSling() {
-        if (brain.gestures.phase == GesturePhase.IDLE && slingSlot == null) return
-        brain.gestures.cancel()
-        val open = slingSlot?.let { thoughtViews[it] }
-        slingSlot = null
-        if (open != null) placeThought(open)
-        setMessage("Canceled. The thought stayed where it was.")
     }
 
     private fun newCluster() {
@@ -1038,21 +1149,55 @@ class RoomActivity : AppSystemActivity() {
         val thought = selectedThought() ?: return
         val clusters = brain.graph.clusters()
         if (clusters.isEmpty()) { setMessage("Create a named cluster before tossing a thought."); return }
+        if (!beginAllowed()) return
         AlertDialog.Builder(this).setTitle("Toss ${thought.title}").setItems(clusters.map { it.name }.toTypedArray()) { _, index ->
+            if (!beginAllowed()) return@setItems
             val preview = runCatching { brain.graph.tossOnto(thought.id, clusters[index].id) }.getOrElse { setMessage(it.message ?: "No cluster."); return@setItems }
-            val gesture = brain.gestures.menuPreview(GestureKind.TOSS, thought.id, SystemClock.uptimeMillis() < scrollQuietUntil, anythingGrabbed())
-            if (!gesture.ok) { setMessage(gesture.reason); return@setItems }
-            AlertDialog.Builder(this).setTitle("Toss onto ${preview.clusterName}?")
-                .setMessage("It lands on that cluster and stays in the library. Nothing is deleted.")
-                .setPositiveButton("Commit") { _, _ ->
-                    val committed = brain.gestures.commit(SystemClock.uptimeMillis() < scrollQuietUntil, anythingGrabbed())
-                    if (!committed.committed) { setMessage(committed.reason); return@setPositiveButton }
-                    runCatching { brain.graph.commitToss(preview, brainProvenance("toss")) }.onSuccess {
-                        saveBrain(); relayoutThoughts(); setMessage("Tossed onto ${preview.clusterName}. Undo puts it back.")
-                    }.onFailure { brain.gestures.cancel(); setMessage(it.message ?: "Toss did not finish.") }
-                }.setNegativeButton("Cancel") { _, _ -> brain.gestures.cancel(); setMessage("Toss canceled. Nothing was deleted.") }
-                .show()
+            beginToss(thought.id, preview, RaySource.MENU, withDialog = true)
         }.show()
+    }
+
+    private fun beginToss(thoughtId: String, preview: TossPreview, source: RaySource, withDialog: Boolean) {
+        if (!beginAllowed()) return
+        val thought = brain.graph.find(thoughtId) ?: return
+        val open = thoughtViews.values.firstOrNull { it.thoughtId == thoughtId } ?: openThoughtCard(thoughtId) ?: return
+        val gesture = previewGesture(GestureKind.TOSS, source, thoughtId)
+        if (!gesture.ok) { setMessage(gesture.reason); return }
+        brain.selectedId = thoughtId
+        tossInFlight = preview
+        motion.beginToss(thoughtId, shownLibrary(open), preview.landing)
+        arm(motion.frame())
+        setMessage("Tossing ${thought.title} onto ${preview.clusterName}. Nothing is deleted.")
+        if (withDialog) confirmMotion(
+            "Toss onto ${preview.clusterName}?",
+            "It arcs onto that cluster and stays in the library. Commit keeps the landing. Cancel flies it back. Nothing is deleted.",
+        )
+    }
+
+    private fun commitTossLanding() {
+        val preview = tossInFlight ?: return
+        motion.stop()
+        motionClock = 0L
+        hideProps()
+        val committed = brain.gestures.commit(menuScrolling(), anythingGrabbed())
+        if (!committed.committed) {
+            tossInFlight = null
+            placeOpen(preview.thoughtId)
+            setMessage(committed.reason)
+            return
+        }
+        runCatching { brain.graph.commitToss(preview, brainProvenance("toss")) }.onSuccess {
+            tossInFlight = null
+            saveBrain()
+            placeOpen(preview.thoughtId)
+            setMessage("Tossed onto ${preview.clusterName}. Undo puts it back.")
+        }.onFailure {
+            tossInFlight = null
+            if (brain.gestures.phase != GesturePhase.IDLE) brain.gestures.cancel()
+            placeOpen(preview.thoughtId)
+            setMessage(it.message ?: "Toss did not finish.")
+        }
+        refreshThoughtStatus()
     }
 
     private fun fanOut() {
@@ -1061,19 +1206,49 @@ class RoomActivity : AppSystemActivity() {
     }
 
     private fun fanOutNow(thoughtId: String) {
+        if (!beginAllowed()) return
         val thought = brain.graph.find(thoughtId) ?: return
-        val committed = runCatching { brain.graph.commitConstellation(thoughtId, brainProvenance("constellation")) }.getOrElse {
+        val layout = runCatching { brain.graph.layoutConstellation(thoughtId) }.getOrElse {
             setMessage(it.message ?: "Constellation was not opened."); return
         }
-        saveBrain()
-        committed.nodes.forEach { openThoughtCard(it.thought.id) }
+        val root = thoughtViews.values.firstOrNull { it.thoughtId == thoughtId } ?: openThoughtCard(thoughtId) ?: return
+        val rootAt = shownLibrary(root)
+        val openAt = mutableMapOf<String, Vec3>()
+        layout.nodes.forEach { node ->
+            val existing = thoughtViews.values.firstOrNull { it.thoughtId == node.thought.id }
+            if (existing != null) openAt[node.thought.id] = shownLibrary(existing)
+            else if (openThoughtCard(node.thought.id) != null) {
+                openedForMotion += node.thought.id
+                openAt[node.thought.id] = rootAt
+                thoughtViews.values.firstOrNull { it.thoughtId == node.thought.id }?.let { applyLibrary(it.entity, rootAt, 1f, grabbable = false, visible = true) }
+            }
+        }
+        val tracks = ThoughtPaths.expand(thoughtId, rootAt, layout.nodes.map { it.thought.id to it.position }, openAt)
         brain.selectedId = thoughtId
+        motion.beginTravel(MotionKind.EXPAND, tracks, thoughtId)
+        onArrived = { finishExpand(thoughtId) }
+        arm(motion.frame())
+        setMessage("Opening ${thought.title}.")
+    }
+
+    private fun finishExpand(thoughtId: String) {
+        openedForMotion.clear()
+        val committed = runCatching { brain.graph.commitConstellation(thoughtId, brainProvenance("constellation")) }.getOrElse {
+            thoughtViews.values.forEach { placeThought(it) }
+            setMessage(it.message ?: "Constellation was not opened.")
+            return
+        }
+        saveBrain()
+        committed.nodes.forEach { node -> placeOpen(node.thought.id) }
+        val title = brain.graph.find(thoughtId)?.title ?: "The idea"
         val extra = if (committed.omitted > 0) " ${committed.omitted} more stay in the library." else ""
-        setMessage("Fanned ${thought.title} into ${committed.nodes.size} thoughts.$extra")
+        setMessage("Fanned $title into ${committed.nodes.size} thoughts.$extra")
         refreshThoughtStatus()
     }
 
     private fun pullThoughtHere(thoughtId: String) {
+        if (motion.active) { setMessage("Finish or cancel the motion in the scene."); return }
+        if (brain.focus != null) { setMessage("Exit focus before pulling a thought."); return }
         val thought = brain.graph.find(thoughtId) ?: return
         val open = thoughtViews.values.firstOrNull { it.thoughtId == thoughtId } ?: openThoughtCard(thoughtId) ?: return
         val grabbed = open.entity.tryGetComponent<Grabbable>()?.isGrabbed == true
@@ -1089,11 +1264,33 @@ class RoomActivity : AppSystemActivity() {
     }
 
     private fun collapseSelected() {
-        if (brain.focus != null) { setMessage("Exit focus before collapsing."); return }
+        if (brain.focus != null || motion.kind == MotionKind.FOCUS) { setMessage("Exit focus before collapsing."); return }
+        if (!beginAllowed()) return
         val thought = selectedThought() ?: return
-        thoughtViews.values.filter { it.thoughtId != thought.id }.toList().forEach { destroyThoughtCard(it) }
-        openThoughtCard(thought.id)
+        val open = thoughtViews.values.filter { brain.graph.find(it.thoughtId) != null }
+        if (open.none { it.thoughtId == thought.id }) openThoughtCard(thought.id)
+        val cards = thoughtViews.values.mapNotNull { card -> brain.graph.find(card.thoughtId)?.let { card } }
+        val root = cards.firstOrNull { it.thoughtId == thought.id } ?: run {
+            setMessage("Open that thought before collapsing.")
+            return
+        }
+        if (cards.size <= 1) {
+            setMessage("Collapsed to one card. Linked thoughts remain in the library.")
+            return
+        }
+        val rootAt = shownLibrary(root)
+        val tracks = ThoughtPaths.collapse(thought.id, rootAt, cards.map { it.thoughtId to shownLibrary(it) })
+        motion.beginTravel(MotionKind.COLLAPSE, tracks, thought.id)
+        onArrived = { finishCollapse(thought.id) }
+        arm(motion.frame())
+        setMessage("Collapsing to ${thought.title}.")
+    }
+
+    private fun finishCollapse(rootId: String) {
+        thoughtViews.values.filter { it.thoughtId != rootId }.toList().forEach { destroyThoughtCard(it) }
+        placeOpen(rootId)
         setMessage("Collapsed to one card. Linked thoughts remain in the library.")
+        refreshThoughtStatus()
     }
 
     private fun enterFocus() {
@@ -1103,44 +1300,70 @@ class RoomActivity : AppSystemActivity() {
 
     private fun focusNow(thoughtId: String) {
         val thought = brain.graph.find(thoughtId) ?: return
+        if (motion.kind == MotionKind.FOCUS) { cancelSceneMotion(); return }
+        if (motion.kind == MotionKind.RESTORE) return
         if (brain.focus?.rootId == thoughtId) { exitFocus(); return }
-        if (brain.focus != null) exitFocus()
+        if (brain.focus != null) { exitFocus(); return }
+        if (motion.active) { setMessage("Finish or cancel the motion in the scene."); return }
+        val root = thoughtViews.values.firstOrNull { it.thoughtId == thoughtId } ?: openThoughtCard(thoughtId) ?: return
+        if (root.entity.tryGetComponent<Grabbable>()?.isGrabbed == true) { setMessage("Release the thought before focusing."); return }
+        val layout = runCatching { brain.graph.layoutConstellation(thoughtId) }.getOrElse { setMessage(it.message ?: "Focus could not gather the related thoughts."); return }
+        layout.nodes.forEach { node ->
+            if (thoughtViews.values.none { it.thoughtId == node.thought.id } && openThoughtCard(node.thought.id) != null) openedForMotion += node.thought.id
+        }
         brain.selectedId = thoughtId
-        runCatching { brain.graph.layoutConstellation(thoughtId) }.getOrElse { setMessage(it.message ?: "Focus could not gather the related thoughts."); return }
-            .nodes.forEach { openThoughtCard(it.thought.id) }
         val cards = thoughtViews.values.associate { it.thoughtId to true }
         val windowVisibility = windows.values.associate { it.saved.id to !it.saved.hidden }
-        brain.focus = brain.graph.planFocus(thoughtId, cards, windowVisibility)
-        applyFocus(false)
-        setMessage("Focused on ${thought.title}. Other thoughts are hidden until you exit.")
+        val bubble = brain.graph.planFocus(thoughtId, cards, windowVisibility)
+        stagingFocus = bubble
+        val roomId = room?.anchor?.uuid?.toString()
+        val homes = thoughtViews.values.mapNotNull { open -> brain.graph.find(open.thoughtId)?.let { open.thoughtId to shownLibrary(open) } }
+        val anchored = thoughtViews.values.mapNotNull { open ->
+            if (roomId != null && brain.graph.anchorFor(open.thoughtId, roomId) != null) open.thoughtId else null
+        }.toSet()
+        val tracks = ThoughtPaths.focus(homes, thoughtId, bubble.visibleThoughtIds, anchored)
+        focusTracks.clear()
+        focusTracks += tracks
+        windowHomes.clear()
+        windows.values.filter { !it.saved.hidden }.forEach { windowHomes[it.saved.id] = it.entity.getComponent<Transform>().transform }
+        windowDimFrom = 0f
+        windowDimTo = 1f
+        motion.beginTravel(MotionKind.FOCUS, tracks, thoughtId)
+        onArrived = {
+            openedForMotion.clear()
+            brain.focus = stagingFocus
+            stagingFocus = null
+            thoughtViews.values.forEach { bindThoughtCard(it.slot) }
+            refreshThoughtStatus()
+            setMessage("Focused on ${thought.title}. Exit focus brings everything back.")
+        }
+        arm(motion.frame())
+        thoughtViews.values.forEach { bindThoughtCard(it.slot) }
+        setMessage("Gathering ${thought.title}.")
     }
 
     private fun exitFocus() {
+        if (motion.kind == MotionKind.FOCUS) { cancelSceneMotion(); return }
+        if (motion.kind == MotionKind.RESTORE) return
         if (brain.focus == null) { setMessage("Focus is already off."); return }
-        applyFocus(true)
-    }
-
-    private fun applyFocus(restore: Boolean) {
-        val bubble = brain.focus ?: return
-        if (restore) {
-            thoughtViews.values.forEach { open -> open.entity.setComponent(Visible(bubble.previousCards[open.thoughtId] ?: true)) }
-            windows.values.forEach { window ->
-                window.entity.setComponent(Visible(!window.saved.hidden))
-                control(window, if (window.saved.hidden) "pause" else "resume")
-            }
-            brain.focus = null
+        if (motion.active) { setMessage("Finish or cancel the motion in the scene."); return }
+        if (focusTracks.isEmpty()) {
+            snapClearFocus()
+            refreshThoughtStatus()
             setMessage("Focus cleared. Everything is where you left it.")
-        } else {
-            thoughtViews.values.forEach { open -> open.entity.setComponent(Visible(bubble.cardVisibility[open.thoughtId] ?: false)) }
-            windows.values.forEach { window ->
-                val visible = bubble.windowVisibility[window.saved.id] ?: false
-                window.entity.setComponent(Visible(visible))
-                control(window, if (visible) "resume" else "pause")
-            }
-            setMessage("Focused. Exit focus brings everything back.")
+            return
         }
-        thoughtViews.values.forEach { bindThoughtCard(it.slot) }
-        refreshThoughtStatus()
+        windowDimFrom = 1f
+        windowDimTo = 0f
+        motion.beginTravel(MotionKind.RESTORE, ThoughtPaths.restore(focusTracks), brain.focus?.rootId ?: focusTracks.first().id)
+        onArrived = {
+            focusTracks.clear()
+            snapClearFocus()
+            refreshThoughtStatus()
+            setMessage("Focus cleared. Everything is where you left it.")
+        }
+        arm(motion.frame())
+        setMessage("Bringing everything back.")
     }
 
     private fun pinSelected() {
@@ -1166,13 +1389,13 @@ class RoomActivity : AppSystemActivity() {
     }
 
     private fun undoThought() {
-        if (brain.focus != null) applyFocus(true)
+        abandonMotion()
         if (brain.graph.undo() == null) { setMessage("Nothing to undo."); return }
         saveBrain(); relayoutThoughts(); refreshThoughtStatus(); setMessage("Undid the last change.")
     }
 
     private fun recallThoughts() {
-        if (brain.gestures.phase != GesturePhase.IDLE) { setMessage("Finish or cancel the current gesture."); return }
+        if (motion.active || brain.gestures.phase != GesturePhase.IDLE) { setMessage("Finish or cancel the motion in the scene."); return }
         if (brain.focus != null) { setMessage("Exit focus before recalling thoughts."); return }
         val open = thoughtViews.values.sortedBy { it.slot }
         if (open.isEmpty()) { setMessage("No thought cards are open."); return }
@@ -1231,6 +1454,28 @@ class RoomActivity : AppSystemActivity() {
             }
             .setNegativeButton("Close", null)
             .show()
+    }
+
+    private fun tossThought(thoughtId: String) {
+        brain.selectedId = thoughtId
+        val clusters = brain.graph.clusters()
+        if (clusters.isEmpty()) { setMessage("Create a named cluster before tossing a thought."); return }
+        if (!beginAllowed()) return
+        if (clusters.size == 1) {
+            val preview = runCatching { brain.graph.tossOnto(thoughtId, clusters.first().id) }.getOrElse {
+                setMessage(it.message ?: "No cluster."); return
+            }
+            beginToss(thoughtId, preview, RaySource.MENU, withDialog = true)
+            return
+        }
+        val thought = brain.graph.find(thoughtId) ?: return
+        AlertDialog.Builder(this).setTitle("Toss ${thought.title}").setItems(clusters.map { it.name }.toTypedArray()) { _, index ->
+            if (!beginAllowed()) return@setItems
+            val preview = runCatching { brain.graph.tossOnto(thoughtId, clusters[index].id) }.getOrElse {
+                setMessage(it.message ?: "No cluster."); return@setItems
+            }
+            beginToss(thoughtId, preview, RaySource.MENU, withDialog = true)
+        }.show()
     }
 
     private fun arrangeThoughts(arrangement: String) {
@@ -1481,7 +1726,8 @@ class RoomActivity : AppSystemActivity() {
             .setPositiveButton("Delete") { _, _ ->
                 runCatching { brain.graph.delete(thought.id, confirmed = true, brainProvenance("delete")) }.onSuccess {
                     if (brain.selectedId == thought.id) brain.selectedId = null
-                    if (brain.focus?.rootId == thought.id) applyFocus(true)
+                    if (motion.active) abandonMotion()
+                    if (brain.focus?.rootId == thought.id) snapClearFocus()
                     thoughtViews.values.filter { it.thoughtId == thought.id }.toList().forEach { destroyThoughtCard(it) }
                     saveBrain(); refreshThoughtStatus(); setMessage("Deleted ${thought.title}. Undo can restore it.")
                 }.onFailure { setMessage(it.message ?: "Thought was not deleted.") }
@@ -1630,12 +1876,437 @@ class RoomActivity : AppSystemActivity() {
             .onFailure { setMessage(it.message ?: "The bench opened, but the thought was not linked to the panel.") }
     }
 
+    private fun menuScrolling() = SystemClock.uptimeMillis() < scrollQuietUntil
+
+    private fun beginAllowed(): Boolean {
+        if (motion.active || brain.gestures.phase != GesturePhase.IDLE) {
+            setMessage("Finish or cancel the motion in the scene.")
+            return false
+        }
+        if (brain.focus != null) {
+            setMessage("Exit focus before moving thoughts another way.")
+            return false
+        }
+        return true
+    }
+
+    private fun previewGesture(kind: GestureKind, source: RaySource, targetId: String): GestureResult {
+        val aimed = brain.gestures.aim(kind, source, targetId, menuScrolling(), anythingGrabbed())
+        if (!aimed.ok) return aimed
+        val selected = brain.gestures.select()
+        if (!selected.ok) return selected
+        return brain.gestures.preview()
+    }
+
+    private fun confirmMotion(title: String, message: String) {
+        var open = true
+        AlertDialog.Builder(this).setTitle(title).setMessage(message)
+            .setPositiveButton("Commit") { _, _ -> open = false; requestCommit() }
+            .setNegativeButton("Cancel") { _, _ -> if (open) cancelSceneMotion() }
+            .setOnCancelListener { if (open) cancelSceneMotion() }
+            .show()
+    }
+
+    private fun requestCommit() {
+        if (!motion.active || motion.returning) return
+        val action: () -> Unit = when (motion.kind) {
+            MotionKind.SLING -> {
+                val id = motion.subjectId ?: return
+                { commitSling(id) }
+            }
+            MotionKind.TOSS -> {
+                { commitTossLanding() }
+            }
+            else -> return
+        }
+        if (motion.arrived) action() else {
+            commitWhenArrived = action
+            setMessage("Watch it land. It stays when it gets there.")
+        }
+    }
+
+    private fun arm(frame: MotionFrame?) {
+        motionClock = 0L
+        if (frame != null) showMotion(frame)
+    }
+
+    private fun stepSceneMotion() {
+        if (!motion.active) return
+        if (motion.kind == MotionKind.SLING && !motion.returning) {
+            val interrupted = brain.gestures.interrupt(menuScrolling(), anythingGrabbed())
+            if (brain.gestures.phase == GesturePhase.IDLE) {
+                returnMessage = interrupted.reason
+                cancelSceneMotion(announce = false)
+                return
+            }
+        }
+        val now = SystemClock.uptimeMillis()
+        val dt = if (motionClock == 0L) 0.016f else (now - motionClock).coerceIn(1L, 50L) / 1000f
+        motionClock = now
+        val frame = motion.step(dt) ?: return
+        showMotion(frame)
+        if (frame.arrived && frame.holding && commitWhenArrived != null) {
+            val action = commitWhenArrived
+            commitWhenArrived = null
+            action?.invoke()
+            return
+        }
+        if (frame.justArrived && frame.holding) holdMessage()
+        if (frame.justArrived && !frame.holding) {
+            val action = onArrived
+            onArrived = null
+            motion.stop()
+            motionClock = 0L
+            hideProps()
+            action?.invoke()
+        }
+    }
+
+    private fun holdMessage() {
+        val title = motion.subjectId?.let { brain.graph.find(it)?.title } ?: "The thought"
+        val text = when (motion.kind) {
+            MotionKind.SLING -> "Tether on $title. Commit keeps it here. Cancel springs it back."
+            MotionKind.TOSS -> "Tossed toward ${tossInFlight?.clusterName ?: "the cluster"}. Commit keeps the landing. Cancel flies it back."
+            else -> return
+        }
+        setMessage(text)
+    }
+
+    private fun showMotion(frame: MotionFrame) {
+        frame.cards.forEach { sample ->
+            val open = thoughtViews.values.firstOrNull { it.thoughtId == sample.id } ?: return@forEach
+            applyCard(open, sample)
+        }
+        if (windowHomes.isNotEmpty()) applyWindowDim(ThoughtPaths.mix(windowDimFrom, windowDimTo, frame.progress))
+        if (frame.tether == null) tetherBeads.forEach { it.setComponent(Visible(false)) }
+        else {
+            ensureProps()
+            frame.tether.beads.forEachIndexed { index, point ->
+                val bead = tetherBeads.getOrNull(index) ?: return@forEachIndexed
+                applyLibrary(bead, point, 1f, grabbable = false, visible = true)
+            }
+        }
+        if (frame.landing == null) landingMarker?.setComponent(Visible(false))
+        else {
+            ensureProps()
+            landingMarker?.let { applyLibrary(it, frame.landing, 1f, grabbable = false, visible = true) }
+        }
+    }
+
+    private fun applyCard(open: OpenThought, sample: CardSample) {
+        applyLibrary(open.entity, sample.position, sample.scale, grabbable = false, visible = true)
+        open.root?.alpha = 1f - sample.dim.coerceIn(0f, 1f) * 0.78f
+    }
+
+    private fun cardAlpha(thoughtId: String): Float {
+        motion.sampleOf(thoughtId)?.let { return 1f - it.dim * 0.78f }
+        if (brain.focus != null) {
+            val dim = focusTracks.firstOrNull { it.id == thoughtId }?.toDim ?: 0f
+            return 1f - dim * 0.78f
+        }
+        return 1f
+    }
+
+    private fun applyLibrary(entity: Entity, coordinates: Vec3, scale: Float, grabbable: Boolean, visible: Boolean) {
+        room?.entity?.let { entity.setComponent(TransformParent(it)) }
+        entity.setComponent(Transform(roomLocal(readingPose(coordinates))))
+        entity.setComponent(Scale(Vector3(scale)))
+        entity.setComponent(Visible(visible))
+        if (grabbable || entity.tryGetComponent<Grabbable>() != null) entity.setComponent(Grabbable(enabled = grabbable))
+    }
+
+    private fun applyWindowDim(dim: Float) {
+        val bubble = stagingFocus ?: brain.focus ?: return
+        windows.values.forEach { window ->
+            if (window.saved.hidden) return@forEach
+            val home = windowHomes[window.saved.id] ?: return@forEach
+            val included = bubble.windowVisibility[window.saved.id] ?: false
+            val amount = if (included) 0f else dim.coerceIn(0f, 1f)
+            window.entity.setComponent(Transform(Pose(Vector3(home.t.x, home.t.y - 0.12f * amount, home.t.z), home.q)))
+            window.entity.setComponent(Scale(Vector3(window.saved.size * (1f - 0.5f * amount))))
+            window.entity.setComponent(Visible(true))
+        }
+    }
+
+    private fun syncLinks() {
+        if (!sceneReady || shuttingDown || propsFailed) return
+        val open = thoughtViews.values.mapNotNull { card ->
+            val at = motion.sampleOf(card.thoughtId)?.position ?: brain.graph.find(card.thoughtId)?.let { shownLibrary(card) }
+            at?.let { card.thoughtId to it }
+        }.toMap()
+        val visible = brain.graph.links().filter { it.fromId in open && it.toId in open }.take(LINK_BARS)
+        if (visible.isNotEmpty() && linkBars.isEmpty()) {
+            runCatching {
+                repeat(LINK_BARS) { linkBars += linkBar() }
+            }.onFailure {
+                linkBars.forEach { runCatching { it.destroy() } }
+                linkBars.clear()
+            }
+        }
+        linkBars.forEachIndexed { index, bar ->
+            val link = visible.getOrNull(index)
+            if (link == null) bar.setComponent(Visible(false))
+            else placeBar(bar, open.getValue(link.fromId), open.getValue(link.toId))
+        }
+    }
+
+    private fun linkBar(): Entity {
+        val half = 0.5f
+        val entity = Entity.create(listOf(
+            Mesh(Uri.parse("mesh://box")),
+            Box(Vector3(-half, -half, -half), Vector3(half, half, half)),
+            Material().apply { baseColor = Color4(0.45f, 0.78f, 0.95f, 1f) },
+            Transform(Pose(Vector3(0f, 1f, 1f), Quaternion(1f, 0f, 0f, 0f))),
+            Visible(false),
+        ))
+        room?.entity?.let { entity.setComponent(TransformParent(it)) }
+        return entity
+    }
+
+    private fun placeBar(bar: Entity, from: Vec3, to: Vec3) {
+        val start = roomLocal(readingPose(from)).t
+        val end = roomLocal(readingPose(to)).t
+        val dx = end.x - start.x
+        val dy = end.y - start.y
+        val dz = end.z - start.z
+        val len = kotlin.math.sqrt(dx * dx + dy * dy + dz * dz)
+        if (len < 0.05f) { bar.setComponent(Visible(false)); return }
+        room?.entity?.let { bar.setComponent(TransformParent(it)) }
+        val mid = Vector3((start.x + end.x) / 2f, (start.y + end.y) / 2f, (start.z + end.z) / 2f)
+        bar.setComponent(Transform(Pose(mid, Quaternion.lookRotation(Vector3(dx, dy, dz)))))
+        bar.setComponent(Scale(Vector3(0.012f, 0.012f, len)))
+        bar.setComponent(Visible(true))
+    }
+
+    private fun ensureProps() {
+        if (propsFailed || tetherBeads.isNotEmpty()) return
+        runCatching {
+            repeat(ThoughtPaths.BEADS) { tetherBeads += sceneBead(0.016f, Color4(0.55f, 0.95f, 0.82f, 1f)) }
+            landingMarker = sceneBead(0.04f, Color4(0.96f, 0.76f, 0.32f, 1f))
+        }.onFailure {
+            tetherBeads.forEach { runCatching { it.destroy() } }
+            tetherBeads.clear()
+            landingMarker = null
+            propsFailed = true
+        }
+    }
+
+    private fun sceneBead(half: Float, color: Color4): Entity {
+        val entity = Entity.create(listOf(
+            Mesh(Uri.parse("mesh://box")),
+            Box(Vector3(-half, -half, -half), Vector3(half, half, half)),
+            Material().apply { baseColor = color },
+            Transform(Pose(Vector3(0f, 1f, 1f), Quaternion(1f, 0f, 0f, 0f))),
+            Visible(false),
+        ))
+        room?.entity?.let { entity.setComponent(TransformParent(it)) }
+        return entity
+    }
+
+    private fun hideProps() {
+        tetherBeads.forEach { runCatching { it.setComponent(Visible(false)) } }
+        landingMarker?.let { runCatching { it.setComponent(Visible(false)) } }
+    }
+
+    private fun placeOpen(thoughtId: String) {
+        thoughtViews.values.filter { it.thoughtId == thoughtId }.forEach { placeThought(it) }
+    }
+
+    private fun shownLibrary(open: OpenThought): Vec3 {
+        val thought = brain.graph.find(open.thoughtId) ?: return Vec3(0f, 0f, 0f)
+        val roomId = room?.anchor?.uuid?.toString()
+        return if (roomId != null && brain.graph.anchorFor(thought.id, roomId) != null) libraryOf(entityWorld(open.entity)) else thought.coordinates
+    }
+
+    private fun entityWorld(entity: Entity): Vec3 {
+        val local = entity.getComponent<Transform>().transform
+        val world = if (room == null) local else roomPose() * local
+        return Vec3(world.t.x, world.t.y, world.t.z)
+    }
+
+    /** Head pose is only the seated frame. Aiming uses the controller, never a head or hand ray. */
+    private fun libraryOf(world: Vec3): Vec3 {
+        val head = scene.getViewerPose().removePitchAndRoll()
+        val local = (head.inverse() * Pose(Vector3(world.x, world.y, world.z), Quaternion(1f, 0f, 0f, 0f))).t
+        return ReadingFrame.library(local.x, local.y, local.z)
+    }
+
+    private fun aimThought(origin: Vec3, forward: Vec3) = rayHit(
+        origin, forward, thoughtViews.values.map { it.thoughtId to entityWorld(it.entity) }, radius = 0.5f, maxDistance = 6f,
+    )
+
+    private fun clusterUnder(origin: Vec3, forward: Vec3): String? {
+        val points = brain.graph.clusters().map { cluster ->
+            val pose = readingPose(cluster.anchor)
+            cluster.id to Vec3(pose.t.x, pose.t.y, pose.t.z)
+        }
+        return rayHit(origin, forward, points, radius = 0.55f, maxDistance = 8f)
+    }
+
+    private fun constellationOpen(rootId: String): Boolean {
+        val layout = runCatching { brain.graph.layoutConstellation(rootId) }.getOrNull() ?: return false
+        return layout.nodes.all { node ->
+            val thought = brain.graph.find(node.thought.id) ?: return false
+            thoughtViews.values.any { it.thoughtId == node.thought.id } && (thought.coordinates - node.position).length() < 0.08f
+        }
+    }
+
+    private fun cancelSceneMotion(announce: Boolean = true) {
+        if (motion.returning || motion.kind == MotionKind.RESTORE) return
+        commitWhenArrived = null
+        if (!motion.active) {
+            if (brain.gestures.phase != GesturePhase.IDLE) brain.gestures.cancel()
+            tossInFlight = null
+            hideProps()
+            snapClearFocus()
+            thoughtViews.values.forEach { placeThought(it) }
+            if (announce) setMessage("Canceled.")
+            return
+        }
+        val progress = motion.frame()?.progress ?: 0f
+        if (motion.kind == MotionKind.FOCUS || windowHomes.isNotEmpty()) {
+            windowDimFrom = ThoughtPaths.mix(windowDimFrom, windowDimTo, progress)
+            windowDimTo = 0f
+        }
+        onArrived = { finishReturn() }
+        motion.reverse()
+        if (announce) setMessage("Coming back.")
+    }
+
+    private fun finishReturn() {
+        val opened = openedForMotion.toList()
+        openedForMotion.clear()
+        tossInFlight = null
+        if (brain.gestures.phase != GesturePhase.IDLE) brain.gestures.cancel()
+        opened.forEach { id -> thoughtViews.values.filter { it.thoughtId == id }.toList().forEach { destroyThoughtCard(it) } }
+        focusTracks.clear()
+        stagingFocus = null
+        snapClearFocus()
+        thoughtViews.values.forEach { placeThought(it) }
+        hideProps()
+        refreshThoughtStatus()
+        setMessage(returnMessage)
+        returnMessage = "Canceled. The thoughts are back where they were."
+    }
+
+    private fun abandonMotion() {
+        if (!motion.active && brain.gestures.phase == GesturePhase.IDLE && brain.focus == null && stagingFocus == null && windowHomes.isEmpty() && openedForMotion.isEmpty()) return
+        commitWhenArrived = null
+        onArrived = null
+        val opened = openedForMotion.toList()
+        openedForMotion.clear()
+        tossInFlight = null
+        if (brain.gestures.phase != GesturePhase.IDLE) brain.gestures.cancel()
+        motion.stop()
+        motionClock = 0L
+        hideProps()
+        opened.forEach { id -> thoughtViews.values.filter { it.thoughtId == id }.toList().forEach { destroyThoughtCard(it) } }
+        snapClearFocus()
+        thoughtViews.values.forEach { placeThought(it) }
+    }
+
+    private fun snapClearFocus() {
+        windowHomes.forEach { (id, home) ->
+            val window = windows.values.firstOrNull { it.saved.id == id } ?: return@forEach
+            window.entity.setComponent(Transform(home))
+            window.entity.setComponent(Scale(Vector3(window.saved.size)))
+            window.entity.setComponent(Visible(!window.saved.hidden))
+        }
+        windowHomes.clear()
+        windowDimFrom = 0f
+        windowDimTo = 0f
+        val wasFocused = brain.focus != null || stagingFocus != null
+        brain.focus = null
+        stagingFocus = null
+        focusTracks.clear()
+        if (wasFocused) {
+            thoughtViews.values.forEach { placeThought(it) }
+            thoughtViews.values.forEach { bindThoughtCard(it.slot) }
+        }
+    }
+
+    /** Controller face buttons only. Hands are skipped, so a pinch cannot sling. */
+    private fun sampleControllers() {
+        if (!sceneLive.get()) return
+        val controllers = Query.where { has(Controller.id) }.eval().filter { it.isLocal() }
+        for (entity in controllers) {
+            val controller = entity.tryGetComponent<Controller>() ?: continue
+            if (controller.type == ControllerType.HAND) continue
+            if (controller.type != ControllerType.CONTROLLER || !controller.isActive) continue
+            val mount = entity.tryGetComponent<AvatarAttachment>()?.type.orEmpty()
+            if (mount.endsWith("hand")) continue
+            val pressed = controller.buttonState and controller.changedButtons
+            if (pressed == 0) continue
+            val pose = entity.getComponent<Transform>().transform
+            val forward = pose.q * Vector3.Forward
+            controllerEdges.add(ControllerEdge(Vec3(pose.t.x, pose.t.y, pose.t.z), Vec3(forward.x, forward.y, forward.z), pressed))
+        }
+    }
+
+    private fun drainControllers() {
+        while (true) {
+            val edge = controllerEdges.poll() ?: break
+            if (!active || shuttingDown) continue
+            val pressed = edge.pressed
+            fun down(bit: Int) = (pressed and bit) != 0
+            when {
+                down(ButtonBits.ButtonB) -> when {
+                    motion.kind == MotionKind.RESTORE -> Unit
+                    motion.active || brain.gestures.phase != GesturePhase.IDLE -> cancelSceneMotion()
+                    brain.focus != null -> exitFocus()
+                }
+                down(ButtonBits.ButtonA) -> controllerSling(edge)
+                down(ButtonBits.ButtonX) -> controllerToss(edge)
+                down(ButtonBits.ButtonY) -> controllerConstellation(edge)
+                down(ButtonBits.ButtonThumbRClick) -> controllerFocus(edge)
+            }
+        }
+    }
+
+    private fun controllerSling(edge: ControllerEdge) {
+        if (motion.kind == MotionKind.SLING && !motion.returning) { requestCommit(); return }
+        val id = aimThought(edge.origin, edge.forward) ?: return
+        beginSling(id, RaySource.CONTROLLER, libraryOf(edge.origin))
+    }
+
+    private fun controllerToss(edge: ControllerEdge) {
+        if (motion.kind == MotionKind.TOSS && !motion.returning) { requestCommit(); return }
+        val id = aimThought(edge.origin, edge.forward) ?: return
+        if (brain.graph.clusters().isEmpty()) { setMessage("Create a named cluster before tossing a thought."); return }
+        val preview = runCatching {
+            val aimed = clusterUnder(edge.origin, edge.forward)
+            if (aimed != null) brain.graph.tossOnto(id, aimed)
+            else {
+                val ahead = Vec3(edge.origin.x + edge.forward.x, edge.origin.y + edge.forward.y, edge.origin.z + edge.forward.z)
+                brain.graph.tossPreview(id, libraryOf(ahead) - libraryOf(edge.origin), null)
+            }
+        }.getOrElse { setMessage(it.message ?: "No cluster."); return }
+        beginToss(id, preview, RaySource.CONTROLLER, withDialog = false)
+    }
+
+    private fun controllerConstellation(edge: ControllerEdge) {
+        if (motion.active) { setMessage("Finish or cancel the motion in the scene."); return }
+        val id = aimThought(edge.origin, edge.forward) ?: brain.selectedId ?: return
+        brain.selectedId = id
+        if (constellationOpen(id)) collapseSelected() else fanOutNow(id)
+    }
+
+    private fun controllerFocus(edge: ControllerEdge) {
+        if (motion.kind == MotionKind.FOCUS) { cancelSceneMotion(); return }
+        if (motion.kind == MotionKind.RESTORE) return
+        if (brain.focus != null) { exitFocus(); return }
+        val id = aimThought(edge.origin, edge.forward) ?: return
+        brain.selectedId = id
+        focusNow(id)
+    }
+
     companion object {
         private const val MANAGER = 7200
         private const val CHAT_BASE = 7300
         private const val THOUGHT_BASE = 7400
         private const val BRAIN_PREF = "second-brain.v1"
         private const val DESK_PREF = "jarvis-desk.v1"
+        private const val LINK_BARS = 24
         private const val SCENE_PERMISSION = "com.oculus.permission.USE_SCENE"
         private const val SCENE_REQUEST = 40
         private const val EXPORT = 41
