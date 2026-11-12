@@ -148,4 +148,30 @@ object PullPolicy {
     }
 }
 
+/**
+ * Seated reading layout. Coordinates use the library frame: z is extra distance past
+ * [PullPolicy.DISTANCE_M]. Recall and new windows stay inside the comfort band.
+ * This does not enable a head or hand ray.
+ */
+object ReadingArc {
+    const val MIN_DISTANCE_M = 0.75f
+    const val MAX_DISTANCE_M = 2.0f
+    const val GAP_M = 0.52f
+
+    fun comfortable(distanceM: Float) = distanceM.isFinite() && distanceM in MIN_DISTANCE_M..MAX_DISTANCE_M
+
+    fun panelDistance(): Float {
+        check(comfortable(PullPolicy.DISTANCE_M))
+        return PullPolicy.DISTANCE_M
+    }
+
+    fun seats(count: Int): List<Vec3> {
+        require(count in 1..ThoughtGraph.MAX_VISIBLE_CARDS) { "Recall needs between one and twelve open cards" }
+        val span = (count - 1) * GAP_M
+        return List(count) { index ->
+            Vec3(-span / 2f + index * GAP_M, 0f, 0f)
+        }
+    }
+}
+
 fun springSettled(body: SpringBody, target: Vec3) = (body.position - target).length() < 0.02f && body.velocity.length() < 0.05f && abs(body.position.x) < 100f

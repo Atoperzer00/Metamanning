@@ -51,6 +51,22 @@ class ThoughtGestureTest {
         assertTrue(springSettled(body, home))
     }
 
+    @Test fun recallSeatsStayOnTheReadingPlaneAndDoNotEnableARay() {
+        assertFalse(GestureMachine().headHandRayEnabled)
+        assertTrue(ReadingArc.comfortable(ReadingArc.panelDistance()))
+        assertEquals(PullPolicy.DISTANCE_M, ReadingArc.panelDistance(), 0.0001f)
+        assertFalse(ReadingArc.comfortable(0.4f))
+        assertFalse(ReadingArc.comfortable(2.5f))
+        val seats = ReadingArc.seats(4)
+        assertEquals(4, seats.size)
+        assertEquals(0f, seats.sumOf { it.x.toDouble() }.toFloat(), 0.001f)
+        assertTrue(seats.all { it.y == 0f && it.z == 0f })
+        val gap = seats.zipWithNext { left, right -> right.x - left.x }.minOrNull() ?: 0f
+        assertTrue(gap >= ReadingArc.GAP_M - 0.001f)
+        assertTrue(runCatching { ReadingArc.seats(0) }.isFailure)
+        assertTrue(runCatching { ReadingArc.seats(ThoughtGraph.MAX_VISIBLE_CARDS + 1) }.isFailure)
+    }
+
     @Test fun pullHereRefusesAGrabAndOtherwiseUnlocksAtReadingDistance() {
         val grabbed = PullPolicy.decide(grabbed = true)
         assertFalse(grabbed.moved)

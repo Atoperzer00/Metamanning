@@ -23,6 +23,29 @@ class ThoughtWorldTest {
         return thought
     }
 
+    @Test fun ideaHistoryShowsOneThoughtWithoutRewritingTheLog() {
+        val library = graph()
+        val note = shareable(library, "Orbit", "first")
+        val other = shareable(library, "Other")
+        val bystander = shareable(library, "Bystander")
+        library.update(note.id, provenance()) { it.copy(title = "Orbit revised", contentRef = "second") }
+        library.link(note.id, other.id, "evidence", "notebook", provenance())
+        val before = library.events().size
+        val steps = library.ideaHistory(note.id)
+        assertEquals(before, library.events().size)
+        assertEquals(listOf("create", "update", "link"), steps.map { it.kind })
+        assertEquals("Orbit revised", steps[1].title)
+        assertEquals("second", steps[1].contentRef)
+        assertTrue(steps.all { it.present })
+        assertEquals(listOf("create", "link"), library.ideaHistory(other.id).map { it.kind })
+        assertEquals(listOf("create"), library.ideaHistory(bystander.id).map { it.kind })
+        library.delete(note.id, true, provenance())
+        val removed = library.ideaHistory(note.id).last()
+        assertEquals("delete", removed.kind)
+        assertFalse(removed.present)
+        assertEquals(before + 1, library.events().size)
+    }
+
     @Test fun curatedEnvironmentsFallBackWhenFramesSlip() {
         assertEquals(listOf("passthrough", "observatory", "design-studio"), EnvironmentCatalog.curated().map { it.id })
         assertTrue(EnvironmentCatalog.curated().all { !it.locomotionForced && it.bundled && it.license.isNotBlank() })

@@ -115,6 +115,14 @@ data class GraphDelta(
     val removeAnchors: List<String> = emptyList(),
 )
 
+data class IdeaStep(
+    val eventCount: Int,
+    val kind: String,
+    val title: String,
+    val contentRef: String,
+    val present: Boolean,
+)
+
 data class ThoughtEvent(
     val id: String,
     val atMillis: Long,
@@ -129,6 +137,15 @@ data class ThoughtEvent(
         require(kind in KINDS) { "Unsupported thought event" }
         require(atMillis >= 0) { "Invalid event time" }
     }
+    fun touches(thoughtId: String): Boolean {
+        if (subjectId == thoughtId) return true
+        return listOf(forward, inverse).any { delta ->
+            delta.thoughts.any { it.id == thoughtId } ||
+                delta.removeThoughts.contains(thoughtId) ||
+                delta.links.any { it.fromId == thoughtId || it.toId == thoughtId }
+        }
+    }
+
     companion object {
         val KINDS = setOf("create", "update", "delete", "link", "unlink", "cluster", "toss", "move", "anchor", "constellation", "import", "undo")
     }
@@ -409,6 +426,28 @@ class ThoughtGraph(private val clock: () -> Long, private val ids: () -> String 
         val target = pending.lastOrNull() ?: return null
         val provenance = Provenance("system", actor, maxOf(clock(), 0L), "undo")
         return record("undo", target.subjectId, provenance, target.forward, target.inverse)
+    }
+
+    /**
+     * How one idea changed. Reads the event log and does not append to it.
+     * A step is present only when the thought still existed after that event.
+     */
+    fun ideaHistory(thoughtId: String): List<IdeaStep> {
+        require(canonicalUuid(thoughtId)) { "Invalid thought id" }
+        val steps = mutableListOf<IdeaStep>()
+        for (count in 1..events.size) {
+            val event = events[count - 1]
+            if (!event.touches(thoughtId)) continue
+            val then = stateAt(count).thoughts.firstOrNull { it.id == thoughtId }
+            steps += IdeaStep(
+                count,
+                event.kind,
+                then?.title ?: "",
+                then?.contentRef ?: "",
+                then != null,
+            )
+        }
+        return steps
     }
 
     /** Library as it was after [count] stored events, including undos. */

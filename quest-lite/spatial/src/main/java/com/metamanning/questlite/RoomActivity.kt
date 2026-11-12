@@ -318,7 +318,7 @@ class RoomActivity : AppSystemActivity() {
         if (slot == null) { setMessage("Window limit reached. Close one or increase the limit in Workspace options."); return }
         if (kind == "browser" && !RoomLayoutCodec.safeBrowserUrl(requestedUrl)) { setMessage("Enter a valid HTTPS browser address."); return }
         val offsets = floatArrayOf(0f, 1.2f, -1.2f, 2.4f, -2.4f, 0f)
-        val placed = frontPose(offsets[slot], if (slot < 3) 1.5f else 2f)
+        val placed = frontPose(offsets[slot], ReadingArc.panelDistance())
         if (slot == 5) placed.t.y += 0.95f
         val pose = roomLocal(placed)
         val title = when (kind) { "browser" -> "Browser ${slot + 1}"; "widget" -> "Widget ${slot + 1}"; else -> "Conversation ${slot + 1}" }
@@ -450,7 +450,7 @@ class RoomActivity : AppSystemActivity() {
             ordered.forEachIndexed { index, window ->
                 window.follow = false; window.saved = window.saved.copy(hidden = false)
                 val side = left + widths[index] / 2f; left += widths[index] + 0.12f
-                window.entity.setComponent(Transform(roomLocal(frontPose(side, 1.8f))))
+                window.entity.setComponent(Transform(roomLocal(frontPose(side, ReadingArc.panelDistance()))))
                 window.entity.setComponent(Visible(true)); window.entity.setComponent(Grabbable(enabled = !window.saved.locked)); control(window, "resume")
             }; saveRoom(); refreshControls()
         }, "Recenter menu" to { recallManager() })
@@ -467,6 +467,7 @@ class RoomActivity : AppSystemActivity() {
         row("Focus" to { enterFocus() }, "Exit focus" to { exitFocus() })
         row("Pin to room" to { pinSelected() }, "Palace" to { showPalace() })
         row("Undo" to { undoThought() }, "History" to { showHistory() })
+        row("Recall thoughts" to { recallThoughts() })
         row("Link" to { linkSelected() }, "Edit" to { editSelected() })
         row("New cluster" to { newCluster() }, "Passthrough" to { selectEnvironment("passthrough") })
         row("Observatory" to { selectEnvironment("observatory") }, "Design studio" to { selectEnvironment("design-studio") })
@@ -1059,7 +1060,64 @@ class RoomActivity : AppSystemActivity() {
         saveBrain(); relayoutThoughts(); refreshThoughtStatus(); setMessage("Undid the last change.")
     }
 
+    private fun recallThoughts() {
+        if (brain.gestures.phase != GesturePhase.IDLE) { setMessage("Finish or cancel the current gesture."); return }
+        if (brain.focus != null) { setMessage("Exit focus before recalling thoughts."); return }
+        val open = thoughtViews.values.sortedBy { it.slot }
+        if (open.isEmpty()) { setMessage("No thought cards are open."); return }
+        val roomId = room?.anchor?.uuid?.toString()
+        val pinned = mutableListOf<OpenThought>()
+        val grabbed = mutableListOf<OpenThought>()
+        val movable = mutableListOf<OpenThought>()
+        open.forEach { card ->
+            val held = card.entity.tryGetComponent<Grabbable>()?.isGrabbed == true
+            val onWall = roomId != null && brain.graph.anchorFor(card.thoughtId, roomId) != null
+            when {
+                held -> grabbed += card
+                onWall -> pinned += card
+                else -> movable += card
+            }
+        }
+        if (movable.isEmpty()) {
+            setMessage(when {
+                grabbed.isNotEmpty() -> "Release a thought before recalling it."
+                else -> "Pinned thoughts stay on the wall."
+            })
+            return
+        }
+        val seats = ReadingArc.seats(movable.size)
+        var moved = 0
+        movable.forEachIndexed { index, card ->
+            runCatching { brain.graph.move(card.thoughtId, seats[index], brainProvenance("recall")) }.onSuccess {
+                placeThought(card)
+                moved += 1
+            }
+        }
+        if (moved == 0) { setMessage("Thoughts could not be recalled."); return }
+        saveBrain()
+        val heldBack = grabbed.size + pinned.size
+        setMessage(if (heldBack == 0) "Recalled $moved thoughts to reading distance."
+            else "Recalled $moved thoughts to reading distance. $heldBack stayed put.")
+    }
+
     private fun showHistory() {
+        val selected = brain.selectedId?.let { brain.graph.find(it) }
+        if (selected != null) {
+            val steps = brain.graph.ideaHistory(selected.id)
+            if (steps.isEmpty()) { setMessage("No history for ${selected.title}."); return }
+            val labels = steps.map { step ->
+                val name = if (step.present) step.title else "(removed)"
+                "${step.eventCount}. ${step.kind} · $name"
+            }.toTypedArray()
+            AlertDialog.Builder(this).setTitle("History of ${selected.title}").setItems(labels) { _, index ->
+                val step = steps[index]
+                val now = brain.graph.find(selected.id)
+                val then = if (step.present) "${step.title}: ${step.contentRef}" else "not in the library"
+                val current = if (now == null) "not in the library" else "${now.title}: ${now.contentRef}"
+                setMessage("After event ${step.eventCount}, it was $then. Now it is $current. History was not changed.")
+            }.show()
+            return
+        }
         val events = brain.graph.events()
         if (events.isEmpty()) { setMessage("No thought history yet."); return }
         val window = events.takeLast(20)
