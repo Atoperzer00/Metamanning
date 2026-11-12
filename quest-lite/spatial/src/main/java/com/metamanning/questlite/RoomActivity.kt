@@ -52,7 +52,7 @@ class RoomActivity : AppSystemActivity() {
     private var slingTarget = Vec3(0f, 0f, 0f)
     private val prefs by lazy { getSharedPreferences("room-workspaces-v1", MODE_PRIVATE) }
     private data class OpenWindow(var saved: WindowLayout, val entity: Entity, var follow: Boolean = false, var wasGrabbed: Boolean = false)
-    private data class OpenThought(val thoughtId: String, val slot: Int, val entity: Entity, var titleView: TextView? = null, var detailView: TextView? = null)
+    private data class OpenThought(val thoughtId: String, val slot: Int, val entity: Entity, var titleView: TextView? = null, var detailView: TextView? = null, var focusButton: Button? = null)
     private val events = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent) {
             if (intent.action != "$packageName.WORKSPACE_EVENT" || shuttingDown) return
@@ -101,7 +101,7 @@ class RoomActivity : AppSystemActivity() {
                 val openSlot = thoughtViews.entries.firstOrNull { it.value.entity.id == entity.id }?.key
                 if (openSlot == null) TextView(context).apply { text = "Thought" } else buildThoughtCard(openSlot, context)
             }, settingsCreator = {
-                UIPanelSettings(shape = QuadShapeOptions(width = 0.46f, height = 0.28f), display = DpDisplayOptions(460f, 280f), style = PanelStyleOptions(R.style.MetamanningTheme))
+                UIPanelSettings(shape = QuadShapeOptions(width = 0.62f, height = 0.48f), display = DpDisplayOptions(680f, 520f), style = PanelStyleOptions(R.style.MetamanningTheme))
             })
         }
         repeat(RoomLayoutCodec.MAX_WINDOWS) { slot ->
@@ -157,10 +157,10 @@ class RoomActivity : AppSystemActivity() {
         systemManager.findSystem<LocomotionSystem>().enableLocomotion(false)
         loadBrain()
         sceneReady = true
-        // The manager is dynamic: its position is computed from the current viewer on every recall.
-        managerEntity = Entity.create(listOf(Panel(MANAGER), Transform(frontPose(-1.05f, 1.4f)), Grabbable()))
-        // Room scanning can take time or be unavailable. Chat must work immediately.
-        addWindow("assistant")
+        val menu = frontPose(-1.45f, 1.6f)
+        menu.t.y -= 0.35f
+        managerEntity = Entity.create(listOf(Panel(MANAGER), Transform(menu), Grabbable()))
+        presentOpeningScene()
         if (checkSelfPermission(SCENE_PERMISSION) == PackageManager.PERMISSION_GRANTED) loadRooms()
         else requestPermissions(arrayOf(SCENE_PERMISSION), SCENE_REQUEST)
     }
@@ -203,8 +203,7 @@ class RoomActivity : AppSystemActivity() {
         windows.values.toList().forEach { destroyPanel(it) }; windows.clear()
         room = next; roomSaveBlocked = false
         if (next == null) {
-            addWindow("assistant")
-            setMessage("Temporary workspace is ready. Saved room windows return when that room is recognized.")
+            setMessage("Passthrough is on. The thoughts stay in front of you.")
             refreshControls(); relayoutThoughts(); return
         }
         val roomId = next.anchor.uuid.toString()
@@ -213,12 +212,10 @@ class RoomActivity : AppSystemActivity() {
             runCatching { RoomLayoutCodec.decode(saved, roomId) }.onSuccess { layout ->
                 roomName = layout.name
                 layout.windows.forEach { createWindow(it) }
-                if (windows.isEmpty()) addWindow("assistant")
-                setMessage(if (layout.windows.isEmpty()) "$roomName recognized. Your workspace is ready."
+                setMessage(if (layout.windows.isEmpty()) "$roomName recognized. Thoughts stay in front of you."
                     else "$roomName · restored ${layout.windows.size} room windows")
             }.onFailure {
                 roomSaveBlocked = true; roomName = prefs.getString("name.$roomId", "Room") ?: "Room"
-                addWindow("assistant")
                 setMessage("Saved layout could not be restored. It has been preserved. Import a backup or explicitly reset this room.")
             }
         } else {
@@ -234,8 +231,7 @@ class RoomActivity : AppSystemActivity() {
                 saveRoom()
                 setMessage("$roomName recognized. Your workspace is now saved in this room.")
             } else {
-                addWindow("assistant")
-                setMessage("$roomName recognized. Your workspace is ready and saved in this room.")
+                setMessage("$roomName recognized. Thoughts stay in front of you.")
             }
         }
         refreshControls()
@@ -437,6 +433,12 @@ class RoomActivity : AppSystemActivity() {
             }) }
             column.addView(line)
         }
+        section("In reach", "Controller actions on the thoughts in front of you")
+        row("Pull here" to { selectedThought()?.let { pullThoughtHere(it.id) } }, "Recall" to { recallThoughts() })
+        row("Fan out" to { selectedThought()?.let { fanOutNow(it.id) } }, "Focus" to {
+            val id = brain.selectedId
+            if (id == null) setMessage("Select a thought first.") else focusNow(id)
+        })
         section("Open", "Floating panels you can move around you")
         row("+ Conversation" to { addWindow() })
         row("Browser" to { browserDialog() }, "HTML widget" to { chooseWidget() })
@@ -702,6 +704,28 @@ class RoomActivity : AppSystemActivity() {
     }
     private fun brainProvenance(note: String) = Provenance("user", "local", System.currentTimeMillis(), note)
 
+    private fun presentOpeningScene() {
+        if (brain.environmentId == "passthrough") scene.enablePassthrough(true)
+        if (brain.graph.thoughts().isEmpty()) {
+            runCatching { OpeningScene.seed(brain.graph) { brainProvenance(it) } }
+                .onSuccess { saveBrain() }
+                .onFailure { setMessage(it.message ?: "The opening thoughts could not be created."); return }
+        }
+        val ids = OpeningScene.cardsToOpen(brain.graph)
+        val placed = ids.mapNotNull { brain.graph.find(it) }
+        if (OpeningScene.stacked(placed.map { it.coordinates })) {
+            val spots = OpeningScene.spread(placed.size)
+            placed.forEachIndexed { index, thought ->
+                runCatching { brain.graph.move(thought.id, spots[index], brainProvenance("opening")) }
+            }
+            saveBrain()
+        }
+        ids.forEach { openThoughtCard(it) }
+        brain.selectedId = ids.firstOrNull()
+        refreshThoughtStatus()
+        setMessage("Passthrough is on. Pull here, Recall, Fan out, and Focus are on each thought.")
+    }
+
     private fun loadBrain() {
         val saved = prefs.getString(BRAIN_PREF, null) ?: return
         runCatching { brain.loadJson(saved) }.onFailure { setMessage("Saved thoughts were preserved but could not be read.") }
@@ -788,13 +812,34 @@ class RoomActivity : AppSystemActivity() {
         open?.detailView = detail
         bindThoughtCard(slot)
         column.addView(title); column.addView(detail)
-        column.addView(Button(context).apply {
-            text = "Select"; ShellStyle.button(context, this, "Select")
-            setOnClickListener {
-                val thoughtId = thoughtViews[slot]?.thoughtId ?: return@setOnClickListener
-                brain.selectedId = thoughtId; refreshThoughtStatus(); setMessage("Selected ${brain.graph.find(thoughtId)?.title ?: "thought"}.")
+        fun cardAction(label: String, onClick: (String) -> Unit): Button {
+            return Button(context).apply {
+                text = label
+                ShellStyle.button(context, this, label)
+                textSize = 14f
+                setOnClickListener {
+                    val thoughtId = thoughtViews[slot]?.thoughtId ?: return@setOnClickListener
+                    brain.selectedId = thoughtId
+                    onClick(thoughtId)
+                }
             }
-        })
+        }
+        fun actionRow(left: Button, right: Button) {
+            val line = LinearLayout(context)
+            val params = LinearLayout.LayoutParams(0, ShellStyle.dp(context, 52), 1f).apply {
+                marginStart = ShellStyle.dp(context, 2); marginEnd = ShellStyle.dp(context, 2); topMargin = ShellStyle.dp(context, 4)
+            }
+            line.addView(left, params); line.addView(right, params)
+            column.addView(line)
+        }
+        actionRow(
+            cardAction("Pull here") { pullThoughtHere(it) },
+            cardAction("Recall") { recallThoughts() },
+        )
+        val focus = cardAction("Focus") { focusNow(it) }
+        open?.focusButton = focus
+        actionRow(cardAction("Fan out") { fanOutNow(it) }, focus)
+        bindThoughtCard(slot)
         return column
     }
 
@@ -803,6 +848,7 @@ class RoomActivity : AppSystemActivity() {
         val thought = brain.graph.find(open.thoughtId) ?: return
         open.titleView?.text = thought.title
         open.detailView?.text = "${thought.type.name.lowercase()} · ${thought.privacy.name.lowercase()}"
+        open.focusButton?.text = if (brain.focus?.rootId == open.thoughtId) "Exit focus" else "Focus"
     }
 
     private fun placeThought(open: OpenThought) {
@@ -972,15 +1018,35 @@ class RoomActivity : AppSystemActivity() {
 
     private fun fanOut() {
         val thought = selectedThought() ?: return
-        val layout = runCatching { brain.graph.layoutConstellation(thought.id) }.getOrElse { setMessage(it.message ?: "Could not lay out links."); return }
-        val extra = if (layout.omitted > 0) " ${layout.omitted} more stay in the library." else ""
-        AlertDialog.Builder(this).setTitle("Fan out ${thought.title}?").setMessage("${layout.nodes.size} cards.$extra")
-            .setPositiveButton("Fan out") { _, _ ->
-                runCatching { brain.graph.commitConstellation(thought.id, brainProvenance("constellation")) }.onSuccess { committed ->
-                    saveBrain(); committed.nodes.forEach { openThoughtCard(it.thought.id) }; brain.selectedId = thought.id
-                    setMessage("Fanned out ${committed.nodes.size} thoughts.$extra Undo gathers their positions back.")
-                }.onFailure { setMessage(it.message ?: "Constellation was not opened.") }
-            }.setNegativeButton("Cancel", null).show()
+        fanOutNow(thought.id)
+    }
+
+    private fun fanOutNow(thoughtId: String) {
+        val thought = brain.graph.find(thoughtId) ?: return
+        val committed = runCatching { brain.graph.commitConstellation(thoughtId, brainProvenance("constellation")) }.getOrElse {
+            setMessage(it.message ?: "Constellation was not opened."); return
+        }
+        saveBrain()
+        committed.nodes.forEach { openThoughtCard(it.thought.id) }
+        brain.selectedId = thoughtId
+        val extra = if (committed.omitted > 0) " ${committed.omitted} more stay in the library." else ""
+        setMessage("Fanned ${thought.title} into ${committed.nodes.size} thoughts.$extra")
+        refreshThoughtStatus()
+    }
+
+    private fun pullThoughtHere(thoughtId: String) {
+        val thought = brain.graph.find(thoughtId) ?: return
+        val open = thoughtViews.values.firstOrNull { it.thoughtId == thoughtId } ?: openThoughtCard(thoughtId) ?: return
+        val grabbed = open.entity.tryGetComponent<Grabbable>()?.isGrabbed == true
+        val decision = PullPolicy.decide(grabbed)
+        if (!decision.moved) { setMessage(decision.reason); return }
+        runCatching { brain.graph.move(thoughtId, OpeningScene.PULL_HOME, brainProvenance("pull")) }.onSuccess {
+            placeThought(open)
+            brain.selectedId = thoughtId
+            saveBrain()
+            setMessage("Pulled ${thought.title} to reading distance.")
+        }.onFailure { setMessage(it.message ?: "The thought was not pulled.") }
+        refreshThoughtStatus()
     }
 
     private fun collapseSelected() {
@@ -993,16 +1059,21 @@ class RoomActivity : AppSystemActivity() {
 
     private fun enterFocus() {
         val thought = selectedThought() ?: return
-        if (brain.focus != null) { setMessage("Exit focus first."); return }
-        AlertDialog.Builder(this).setTitle("Focus on ${thought.title}?")
-            .setMessage("Other cards and windows dim until you exit. Nothing is deleted.")
-            .setPositiveButton("Focus") { _, _ ->
-                brain.graph.layoutConstellation(thought.id).nodes.forEach { openThoughtCard(it.thought.id) }
-                val cards = thoughtViews.values.associate { it.thoughtId to true }
-                val windowVisibility = windows.values.associate { it.saved.id to !it.saved.hidden }
-                brain.focus = brain.graph.planFocus(thought.id, cards, windowVisibility)
-                applyFocus(false)
-            }.setNegativeButton("Cancel", null).show()
+        focusNow(thought.id)
+    }
+
+    private fun focusNow(thoughtId: String) {
+        val thought = brain.graph.find(thoughtId) ?: return
+        if (brain.focus?.rootId == thoughtId) { exitFocus(); return }
+        if (brain.focus != null) exitFocus()
+        brain.selectedId = thoughtId
+        runCatching { brain.graph.layoutConstellation(thoughtId) }.getOrElse { setMessage(it.message ?: "Focus could not gather the related thoughts."); return }
+            .nodes.forEach { openThoughtCard(it.thought.id) }
+        val cards = thoughtViews.values.associate { it.thoughtId to true }
+        val windowVisibility = windows.values.associate { it.saved.id to !it.saved.hidden }
+        brain.focus = brain.graph.planFocus(thoughtId, cards, windowVisibility)
+        applyFocus(false)
+        setMessage("Focused on ${thought.title}. Other thoughts are hidden until you exit.")
     }
 
     private fun exitFocus() {
@@ -1029,6 +1100,7 @@ class RoomActivity : AppSystemActivity() {
             }
             setMessage("Focused. Exit focus brings everything back.")
         }
+        thoughtViews.values.forEach { bindThoughtCard(it.slot) }
         refreshThoughtStatus()
     }
 

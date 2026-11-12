@@ -23,6 +23,33 @@ class ThoughtWorldTest {
         return thought
     }
 
+    @Test fun openingScenePlacesLinkedThoughtsWhereTheControlsCanMoveThem() {
+        assertFalse(GestureMachine().headHandRayEnabled)
+        val library = graph()
+        val ids = OpeningScene.seed(library) { note -> provenance().copy(note = note) }
+        assertEquals(4, ids.size)
+        val opened = OpeningScene.cardsToOpen(library)
+        assertEquals(ids[0], opened.first())
+        assertEquals(ids.toSet(), opened.toSet())
+        val spots = ids.map { library.find(it)!!.coordinates }
+        assertEquals(OpeningScene.spread(4), spots)
+        assertTrue(spots.all { it != OpeningScene.PULL_HOME })
+        assertTrue(spots.zip(ReadingArc.seats(4)).all { (placed, seat) -> (placed - seat).length() > 0.2f })
+        assertTrue(spots.all { ReadingArc.comfortable(PullPolicy.DISTANCE_M + it.z) })
+        val question = ids[2]
+        val focus = library.planFocus(question, ids.associateWith { true }, emptyMap())
+        assertTrue(focus.cardVisibility.getValue(question))
+        assertTrue(focus.cardVisibility.getValue(ids[0]))
+        assertFalse(focus.cardVisibility.getValue(ids[1]))
+        assertFalse(focus.cardVisibility.getValue(ids[3]))
+        val fanned = library.layoutConstellation(ids[0])
+        assertTrue(fanned.nodes.any { (it.position - library.find(it.thought.id)!!.coordinates).length() > 0.2f })
+        library.move(ids[1], OpeningScene.PULL_HOME, provenance())
+        assertEquals(OpeningScene.PULL_HOME, library.find(ids[1])!!.coordinates)
+        assertFalse(OpeningScene.stacked(OpeningScene.spread(4)))
+        assertTrue(OpeningScene.stacked(List(3) { Vec3(0f, 0f, 0f) }))
+    }
+
     @Test fun ideaHistoryShowsOneThoughtWithoutRewritingTheLog() {
         val library = graph()
         val note = shareable(library, "Orbit", "first")
