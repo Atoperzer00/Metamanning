@@ -29,7 +29,7 @@ The native spatial workspace now offers **Pull here** per panel and **Pull this 
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) | Local inference experiments | Optional backend adapter or carefully benchmarked on-device model | MIT; RAM, thermals, battery constraints |
 | [Godot](https://github.com/godotengine/godot) | Alternative open 3D engine | Research only, not an extra runtime in Luma | MIT; architecture mismatch |
 
-No external source has been copied by this branch. Source list is a candidate manifest, not a completed license audit.
+No external source has been copied by this branch. The spatial desk reimplements Jarvis layout, pomodoro, and todo behavior in Kotlin; it does not vendor additional upstream files. Source list is a candidate manifest, not a completed license audit.
 
 ## Proposed interactions and quality gates
 
@@ -78,5 +78,6 @@ The native host is still `quest-lite/spatial`. Thoughts live in a local library 
 - **Environments.** Passthrough stays the default. Calm observatory and Bright design studio are licensed packages on the curated channel: original geometry, at least two levels of detail, lights, and occlusion volumes. Installing one checks the package hash, license, and frame budget. A missed budget, or a level of detail that does not fit, returns to passthrough. There is no environment marketplace and no imported mesh pack. The packages ship with the app; a unit test also transfers those bytes across a loopback socket. Frame time on a headset is still unmeasured.
 - **Co-think.** The host opens a session and approves specific thoughts. A guest joins with that session id and receives only those thoughts and the links between them. Conversations, cookies, camera references, room anchors, and anything not approved stay behind. A guest cannot push objects onto the host. Two sessions on the loopback address are covered by a unit test. Two physical headsets have not been tested.
 - **Look-and-ask, retrieval, bench.** Look-and-ask is opt-in, shows a capture indicator, and keeps a bounded snapshot of one selected thought. The snapshot bytes stay on the headset; the reviewed draft names the object and does not claim website tool access. Retrieval does the same. The bench reuses browser and offline widget panels.
+- **Jarvis desk.** Arc, grid, and stack follow the imported Jarvis `LayoutArranger`, then sit on the seated reading plane. Desk is on the menu beside Recall. A focus timer follows the Jarvis pomodoro schema, including the long break after four sessions, and keeps running from a saved deadline while the headset is asleep. Task steps follow the Jarvis todo item shape, live in the thought itself, and undo with the rest of the library. The opening task is one of those checklists. No Jarvis backend is contacted, and head and hand rays stay off.
 
 Still blocked without a Quest: physical Pull here acceptance (hands, controllers, room save/reload, comfort), real head/hand-ray pinch, frame timing on device, and a second physical headset. Head and hand rays stay off. Slice A is not device-tested. This stays a draft until a headset accepts it.

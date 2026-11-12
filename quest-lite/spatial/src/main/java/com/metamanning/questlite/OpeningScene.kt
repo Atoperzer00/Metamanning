@@ -40,7 +40,10 @@ object OpeningScene {
             ThoughtPrivacy.SHAREABLE, spots[1], provenance("opening"),
         )
         val question = graph.create(
-            ThoughtType.TASK, "Open question", "What should this project remember next?",
+            ThoughtType.TASK, "Open question", TaskSteps.write(listOf(
+                TaskItem("remember", "What should this project remember next?", false),
+                TaskItem("source", "Keep a source beside the claim", false),
+            )),
             ThoughtPrivacy.SHAREABLE, spots[2], provenance("opening"),
         )
         val evidence = graph.create(

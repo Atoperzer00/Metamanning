@@ -249,6 +249,7 @@ class SecondBrain(private val clock: () -> Long = { System.currentTimeMillis() }
     var focus: FocusBubble? = null
     var share: CoThinkSession? = null
     var selectedId: String? = null
+    var desk: FocusTimer = FocusTimer()
 
     fun loadJson(json: String) {
         graph = ThoughtGraph.decode(json, clock)

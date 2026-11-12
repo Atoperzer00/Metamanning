@@ -191,6 +191,7 @@ class RoomActivity : AppSystemActivity() {
         }
         if (released) saveRoom()
         stepSling()
+        syncDesk(announce = true)
         if (brain.environmentId != "passthrough" && brain.frames.exceeded()) selectEnvironment("passthrough")
     }
     private fun changeRoom(next: MRUKRoom?) {
@@ -469,7 +470,7 @@ class RoomActivity : AppSystemActivity() {
         row("Focus" to { enterFocus() }, "Exit focus" to { exitFocus() })
         row("Pin to room" to { pinSelected() }, "Palace" to { showPalace() })
         row("Undo" to { undoThought() }, "History" to { showHistory() })
-        row("Recall thoughts" to { recallThoughts() })
+        row("Recall thoughts" to { recallThoughts() }, "Desk" to { showDesk() })
         row("Link" to { linkSelected() }, "Edit" to { editSelected() })
         row("New cluster" to { newCluster() }, "Passthrough" to { selectEnvironment("passthrough") })
         row("Observatory" to { selectEnvironment("observatory") }, "Design studio" to { selectEnvironment("design-studio") })
@@ -691,10 +692,10 @@ class RoomActivity : AppSystemActivity() {
         if (sceneReady) recallManager()
         windows.values.filter { !it.saved.hidden }.forEach { control(it, "resume") }
     }
-    override fun onPause() { active = false; placementHandler.removeCallbacksAndMessages(null); saveRoom(); saveBrain(); windows.values.forEach { control(it, "pause") }; super.onPause() }
+    override fun onPause() { active = false; placementHandler.removeCallbacksAndMessages(null); saveRoom(); saveBrain(); saveDesk(); windows.values.forEach { control(it, "pause") }; super.onPause() }
     override fun onSpatialShutdown() {
         runCatching { coThinkHost?.close() }; coThinkHost = null
-        saveRoom(); saveBrain(); shuttingDown = true; sceneReady = false
+        saveRoom(); saveBrain(); saveDesk(); shuttingDown = true; sceneReady = false
         windows.values.toList().forEach { destroyPanel(it) }; windows.clear()
         super.onSpatialShutdown()
     }
@@ -722,8 +723,9 @@ class RoomActivity : AppSystemActivity() {
         }
         ids.forEach { openThoughtCard(it) }
         brain.selectedId = ids.firstOrNull()
-        refreshThoughtStatus()
-        setMessage("Passthrough is on. Pull here, Recall, Fan out, and Focus are on each thought.")
+        setMessage("Passthrough is on. Pull here, Recall, Fan out, and Focus are on each thought. Desk arranges them and keeps a focus timer.")
+        loadDesk()
+        syncDesk(false)
     }
 
     private fun loadBrain() {
@@ -737,6 +739,36 @@ class RoomActivity : AppSystemActivity() {
             .onFailure { setMessage("Thoughts could not be saved: ${it.message}") }
     }
 
+    private fun loadDesk() {
+        val saved = prefs.getString(DESK_PREF, null) ?: return
+        runCatching { brain.desk = FocusClock.decode(saved) }.onFailure {
+            prefs.edit().remove(DESK_PREF).apply()
+            setMessage("The focus timer was reset. Its saved state could not be read.")
+        }
+    }
+
+    private fun saveDesk() {
+        if (shuttingDown) return
+        runCatching { prefs.edit().putString(DESK_PREF, FocusClock.encode(brain.desk)).apply() }
+    }
+
+    private var shownDesk = ""
+
+    private fun syncDesk(announce: Boolean) {
+        val now = System.currentTimeMillis()
+        val tick = FocusClock.catchUp(brain.desk, now)
+        if (tick.advanced > 0) {
+            brain.desk = tick.timer
+            saveDesk()
+            if (announce) setMessage(FocusClock.advancedMessage(brain.desk))
+        }
+        val label = FocusClock.label(brain.desk, now)
+        if (label != shownDesk) {
+            shownDesk = label
+            refreshThoughtStatus()
+        }
+    }
+
     private fun selectedThought(): Thought? {
         val id = brain.selectedId ?: run { setMessage("Select a thought first."); return null }
         return brain.graph.find(id) ?: run { brain.selectedId = null; setMessage("That thought is no longer in the library."); return null }
@@ -747,6 +779,7 @@ class RoomActivity : AppSystemActivity() {
         val env = activeEnvironment()
         val flags = listOfNotNull(
             env?.name,
+            if (brain.desk.phase == FocusPhase.IDLE && brain.desk.completedSessions == 0) null else FocusClock.label(brain.desk, System.currentTimeMillis()),
             if (brain.look.indicatorVisible) "CAPTURE ON" else null,
             if (brain.focus != null) "Focus" else null,
             brain.share?.let { if (it.role == SessionRole.HOST) "Host" else "Guest" },
@@ -847,7 +880,13 @@ class RoomActivity : AppSystemActivity() {
         val open = thoughtViews[slot] ?: return
         val thought = brain.graph.find(open.thoughtId) ?: return
         open.titleView?.text = thought.title
-        open.detailView?.text = "${thought.type.name.lowercase()} · ${thought.privacy.name.lowercase()}"
+        open.titleView?.setTextColor(Color.parseColor(when (thought.type) {
+            ThoughtType.NOTE -> "#F3D27A"
+            ThoughtType.TASK -> "#B7F0C8"
+            else -> "#FFFFFF"
+        }))
+        val steps = TaskSteps.peek(thought.contentRef)?.let { " · ${TaskSteps.progress(it)}" }.orEmpty()
+        open.detailView?.text = "${thought.type.name.lowercase()} · ${thought.privacy.name.lowercase()}$steps"
         open.focusButton?.text = if (brain.focus?.rootId == open.thoughtId) "Exit focus" else "Focus"
     }
 
@@ -1172,6 +1211,175 @@ class RoomActivity : AppSystemActivity() {
             else "Recalled $moved thoughts to reading distance. $heldBack stayed put.")
     }
 
+    private fun showDesk() {
+        syncDesk(false)
+        val pauseLabel = if (brain.desk.state == FocusRun.PAUSED) "Resume timer" else "Pause timer"
+        val labels = arrayOf("Arc", "Grid", "Stack", "Start focus", pauseLabel, "Skip phase", "Reset timer", "Steps")
+        AlertDialog.Builder(this).setTitle("Desk")
+            .setMessage("Arrange the open thoughts, run a focus timer, or check steps on a task. This stays on the headset.")
+            .setItems(labels) { _, index ->
+                when (index) {
+                    0 -> arrangeThoughts("arc")
+                    1 -> arrangeThoughts("grid")
+                    2 -> arrangeThoughts("stack")
+                    3 -> startFocusTimer()
+                    4 -> pauseOrResumeFocus()
+                    5 -> skipFocus()
+                    6 -> resetFocus()
+                    else -> editSteps()
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun arrangeThoughts(arrangement: String) {
+        if (brain.gestures.phase != GesturePhase.IDLE) { setMessage("Finish or cancel the current gesture."); return }
+        if (brain.focus != null) { setMessage("Exit focus before arranging thoughts."); return }
+        val roomId = room?.anchor?.uuid?.toString()
+        val movable = thoughtViews.values.sortedBy { it.slot }.filter { card ->
+            card.entity.tryGetComponent<Grabbable>()?.isGrabbed != true &&
+                (roomId == null || brain.graph.anchorFor(card.thoughtId, roomId) == null)
+        }
+        if (movable.size < 2) { setMessage("Open at least two thoughts that are not pinned or held."); return }
+        val spots = runCatching { HoloArranger.readingSpots(arrangement, movable.size) }.getOrElse {
+            setMessage(it.message ?: "Those thoughts were not arranged."); return
+        }
+        var moved = 0
+        movable.forEachIndexed { index, card ->
+            runCatching { brain.graph.move(card.thoughtId, spots[index], brainProvenance(arrangement)) }.onSuccess {
+                placeThought(card)
+                moved += 1
+            }
+        }
+        if (moved == 0) { setMessage("Those thoughts were not arranged."); return }
+        saveBrain()
+        val shape = when (arrangement) { "grid" -> "a grid"; "stack" -> "a stack"; else -> "an arc" }
+        val stayed = thoughtViews.size - movable.size
+        val extra = if (stayed > 0) " Pinned and held cards stayed put." else ""
+        setMessage("Arranged $moved thoughts in $shape.$extra")
+    }
+
+    private fun startFocusTimer() {
+        syncDesk(false)
+        if (brain.desk.state == FocusRun.RUNNING && brain.desk.phase == FocusPhase.FOCUS) {
+            setMessage("Focus is already running."); return
+        }
+        val task = brain.selectedId?.let { brain.graph.find(it)?.title }.orEmpty()
+        brain.desk = FocusClock.start(brain.desk, System.currentTimeMillis(), task)
+        saveDesk()
+        syncDesk(false)
+        setMessage("Focus started. ${FocusClock.label(brain.desk, System.currentTimeMillis())}.")
+    }
+
+    private fun pauseOrResumeFocus() {
+        syncDesk(false)
+        val now = System.currentTimeMillis()
+        brain.desk = when (brain.desk.state) {
+            FocusRun.RUNNING -> runCatching { FocusClock.pause(brain.desk, now) }.getOrElse {
+                setMessage(it.message ?: "The timer is not running."); return
+            }
+            FocusRun.PAUSED -> runCatching { FocusClock.resume(brain.desk, now) }.getOrElse {
+                setMessage(it.message ?: "The timer is not paused."); return
+            }
+            FocusRun.IDLE -> { setMessage("Start a focus timer first."); return }
+        }
+        saveDesk()
+        syncDesk(false)
+        setMessage(if (brain.desk.state == FocusRun.PAUSED) "Timer paused." else "Timer resumed.")
+    }
+
+    private fun skipFocus() {
+        syncDesk(false)
+        val next = runCatching { FocusClock.skip(brain.desk, System.currentTimeMillis()) }.getOrElse {
+            setMessage(it.message ?: "Start a focus timer first."); return
+        }
+        brain.desk = next
+        saveDesk()
+        syncDesk(false)
+        setMessage(FocusClock.advancedMessage(brain.desk))
+    }
+
+    private fun resetFocus() {
+        val kept = brain.desk.completedSessions
+        brain.desk = FocusClock.reset(brain.desk)
+        saveDesk()
+        syncDesk(false)
+        setMessage(if (kept == 0) "Timer reset." else "Timer reset. $kept completed sessions stay counted.")
+    }
+
+    private fun editSteps() {
+        val thought = selectedThought() ?: return
+        if (thought.type != ThoughtType.TASK) { setMessage("Steps belong on a task."); return }
+        val existing = runCatching { TaskSteps.read(thought.contentRef) }.getOrElse {
+            setMessage(it.message ?: "Those steps could not be read."); return
+        }
+        if (existing == null) {
+            AlertDialog.Builder(this).setTitle(thought.title)
+                .setMessage("Turn this note into a checklist? The sentence becomes the first step.")
+                .setPositiveButton("Make steps") { _, _ ->
+                    val text = thought.contentRef.ifBlank { thought.title }.take(80)
+                    runCatching {
+                        brain.graph.update(thought.id, brainProvenance("steps")) {
+                            it.copy(contentRef = TaskSteps.write(listOf(TaskItem("step", text, false))))
+                        }
+                    }.onSuccess {
+                        saveBrain(); bindOpen(thought.id); setMessage("Added a step to ${thought.title}.")
+                    }.onFailure { setMessage(it.message ?: "Steps were not saved.") }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+            return
+        }
+        showStepList(thought.id, existing)
+    }
+
+    private fun showStepList(thoughtId: String, items: List<TaskItem>) {
+        val thought = brain.graph.find(thoughtId) ?: return
+        val labels = items.map { (if (it.done) "Done · " else "Open · ") + it.text }.toTypedArray()
+        AlertDialog.Builder(this).setTitle("Steps · ${thought.title}").setItems(labels) { _, index ->
+            val item = items[index]
+            runCatching {
+                brain.graph.update(thoughtId, brainProvenance("steps")) { current ->
+                    current.copy(contentRef = TaskSteps.toggle(current.contentRef, item.id))
+                }
+            }.onSuccess { updated ->
+                saveBrain()
+                bindOpen(thoughtId)
+                setMessage(if (item.done) "Reopened ${item.text}." else "Checked ${item.text}.")
+                val next = TaskSteps.peek(updated.contentRef)
+                if (next != null) placementHandler.post { showStepList(thoughtId, next) }
+            }.onFailure { setMessage(it.message ?: "That step was not changed.") }
+        }.setNeutralButton("Add") { _, _ -> addStep(thoughtId) }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun addStep(thoughtId: String) {
+        val field = EditText(this).apply { hint = "Step"; isSingleLine = true; filters = arrayOf(android.text.InputFilter.LengthFilter(80)) }
+        AlertDialog.Builder(this).setTitle("Add a step").setView(field).setPositiveButton("Add") { _, _ ->
+            val text = field.text.toString().trim()
+            if (text.isEmpty()) { setMessage("A step needs a few words."); return@setPositiveButton }
+            val current = brain.graph.find(thoughtId) ?: return@setPositiveButton
+            val items = TaskSteps.peek(current.contentRef) ?: run { setMessage("This task has no steps."); return@setPositiveButton }
+            val id = (1..99).firstNotNullOfOrNull { n -> "s$n".takeIf { candidate -> items.none { it.id == candidate } } }
+                ?: run { setMessage("This checklist is full."); return@setPositiveButton }
+            runCatching {
+                brain.graph.update(thoughtId, brainProvenance("steps")) { thought ->
+                    thought.copy(contentRef = TaskSteps.add(thought.contentRef, id, text))
+                }
+            }.onSuccess { updated ->
+                saveBrain(); bindOpen(thoughtId); setMessage("Added a step.")
+                val next = TaskSteps.peek(updated.contentRef)
+                if (next != null) placementHandler.post { showStepList(thoughtId, next) }
+            }.onFailure { setMessage(it.message ?: "That step was not added.") }
+        }.setNegativeButton("Cancel", null).show()
+    }
+
+    private fun bindOpen(thoughtId: String) {
+        thoughtViews.values.filter { it.thoughtId == thoughtId }.forEach { bindThoughtCard(it.slot) }
+    }
+
     private fun showHistory() {
         val selected = brain.selectedId?.let { brain.graph.find(it) }
         if (selected != null) {
@@ -1427,6 +1635,7 @@ class RoomActivity : AppSystemActivity() {
         private const val CHAT_BASE = 7300
         private const val THOUGHT_BASE = 7400
         private const val BRAIN_PREF = "second-brain.v1"
+        private const val DESK_PREF = "jarvis-desk.v1"
         private const val SCENE_PERMISSION = "com.oculus.permission.USE_SCENE"
         private const val SCENE_REQUEST = 40
         private const val EXPORT = 41
