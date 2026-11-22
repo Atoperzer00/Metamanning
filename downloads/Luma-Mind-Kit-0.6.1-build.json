@@ -1,0 +1,25 @@
+{
+  "applicationId": "com.metamanning.spatial",
+  "versionName": "0.6.1-mindkit",
+  "versionCode": 10,
+  "sourceCommit": "f3b7f74c5f589cc98caec38861411b951ccb600b",
+  "baselineCommit": "7b6b56b3b73ee404f93a7ced10093aaa1421656e",
+  "apk": "Luma-Mind-Kit-0.6.1-mindkit.apk",
+  "sha256": "a61b9a08c7714f881075d0d3db1d276b85bc1719ab75bd67a647318c93c43582",
+  "buildDate": "2026-11-22",
+  "variant": "debug, locally signed",
+  "checks": {
+    "androidBuild": "passed",
+    "androidUnitTests": { "passed": 26, "failed": 0 },
+    "androidLint": "passed; existing warnings remain",
+    "adapterAndLaunchRegressionTests": { "passed": 22, "failed": 0 },
+    "browserAdapterIntegration": "passed in Chromium",
+    "widgetIntegration": "seven templates passed; offline isolation, bounded state, and reload persistence through a simulated bridge",
+    "packagedManifest": "version and all three Horizon panel intent categories verified with Android build tools"
+  },
+  "deviceAcceptance": {
+    "installedThisBuild": false,
+    "reason": "No authorized Quest connected by USB or reachable at its remembered Wi-Fi address during this build",
+    "pending": ["launch and 3D rendering", "hand and controller input", "signed-in voice and camera", "native widget storage", "physical room relocalization", "comfort and frame rate"]
+  }
+}
