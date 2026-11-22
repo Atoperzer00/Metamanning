@@ -35,6 +35,10 @@ class RoomActivity : AppSystemActivity() {
     private val placementHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val documentIo = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var managerEntity: Entity? = null
+    private var mindCore: Entity? = null
+    private val mindNodes = mutableListOf<Entity>()
+    private val mindHalos = mutableListOf<Entity>()
+    private var mindStartedAt = 0L
     private var controls: LinearLayout? = null
     private var roomStatus: TextView? = null
     private var message = "Luma is starting…"
@@ -81,7 +85,12 @@ class RoomActivity : AppSystemActivity() {
     override fun registerPanels(): List<PanelRegistration> {
         val registrations = mutableListOf<PanelRegistration>(
             ViewPanelRegistration(MANAGER, dynamicViewCreator = { _, context -> buildControls(context) }, settingsCreator = {
-                UIPanelSettings(shape = QuadShapeOptions(width = 0.95f, height = 1.1f), display = DpDisplayOptions(720f, 840f), style = PanelStyleOptions(R.style.MetamanningTheme))
+                UIPanelSettings(
+                    shape = CylinderShapeOptions(radius = 1.45f, width = 0.95f, height = 1.1f),
+                    display = DpDisplayOptions(720f, 840f),
+                    rendering = UIPanelRenderOptions(PanelRenderMode.Mesh()),
+                    style = PanelStyleOptions(R.style.MetamanningTheme)
+                )
             })
         )
         repeat(RoomLayoutCodec.MAX_WINDOWS) { slot ->
@@ -95,7 +104,12 @@ class RoomActivity : AppSystemActivity() {
                     putExtra("window_title", saved.title); putExtra("initial_hidden", saved.hidden); putExtra("initial_url", saved.url)
                 }
             }, settingsCreator = {
-                UIPanelSettings(shape = QuadShapeOptions(width = 1.1f, height = 0.9f), display = DpDisplayOptions(1000f, 820f), style = PanelStyleOptions(R.style.MetamanningTheme))
+                UIPanelSettings(
+                    shape = CylinderShapeOptions(radius = 1.8f, width = 1.1f, height = 0.9f),
+                    display = DpDisplayOptions(1000f, 820f),
+                    rendering = UIPanelRenderOptions(PanelRenderMode.Mesh()),
+                    style = PanelStyleOptions(R.style.MetamanningTheme)
+                )
             })
         }
         return registrations
@@ -120,6 +134,7 @@ class RoomActivity : AppSystemActivity() {
         scene.enablePassthrough(prefs.getBoolean("passthrough", true))
         systemManager.findSystem<LocomotionSystem>().enableLocomotion(false)
         sceneReady = true
+        createMindKit()
         // The manager is dynamic: its position is computed from the current viewer on every recall.
         managerEntity = Entity.create(listOf(Panel(MANAGER), Transform(frontPose(-1.05f, 1.4f)), Grabbable()))
         // Room scanning can take time or be unavailable. Chat must work immediately.
@@ -138,6 +153,7 @@ class RoomActivity : AppSystemActivity() {
     }
     private fun updateWorkspace() {
         val viewer = scene.getViewerPose()
+        updateMindKit()
         // getCurrentRoom() can fall back to the first room. Never restore private windows on that fallback.
         val recognized = mruk.rooms.firstOrNull { it.entity != null && it.isPositionInRoom(viewer.t) }
         if (recognized?.anchor?.uuid != room?.anchor?.uuid || recognized?.entity?.id != room?.entity?.id) changeRoom(recognized)
@@ -153,6 +169,73 @@ class RoomActivity : AppSystemActivity() {
             window.wasGrabbed = grabbed
         }
         if (released) saveRoom()
+    }
+
+    /**
+     * Luma's spatial identity: a small procedural 3D core with animated orbitals.
+     * The shell remains useful even before a room is recognized, so this is deliberately
+     * head-relative and does not get persisted as a room window.
+     */
+    private fun createMindKit() {
+        mindStartedAt = SystemClock.uptimeMillis()
+        val pose = frontPose(0f, 1.55f)
+        mindCore = Entity.create(listOf(
+            Mesh(Uri.parse("mesh://sphere")), Sphere(0.16f),
+            Material().apply {
+                baseColor = Color4(0.18f, 0.95f, 0.78f, 1f)
+                metallic = 0.45f; roughness = 0.16f
+            },
+            Transform(pose), Scale(Vector3(1f)), Visible(true)
+        ))
+        val colors = arrayOf(
+            Color4(0.45f, 0.75f, 1f, 1f), Color4(0.95f, 0.45f, 0.78f, 1f),
+            Color4(1f, 0.72f, 0.32f, 1f), Color4(0.48f, 0.98f, 0.58f, 1f),
+            Color4(0.68f, 0.52f, 1f, 1f)
+        )
+        repeat(5) { index ->
+            mindNodes += Entity.create(listOf(
+                Mesh(Uri.parse("mesh://sphere")), Sphere(0.035f),
+                Material().apply { baseColor = colors[index] },
+                Transform(Pose(pose.t, Quaternion())), Visible(true)
+            ))
+        }
+        repeat(3) { index ->
+            mindHalos += Entity.create(listOf(
+                Mesh(Uri.parse("mesh://sphere")), Sphere(0.2f),
+                Material().apply {
+                    baseColor = Color4(0.18f, 0.9f, 0.78f, 0.13f)
+                    unlit = true
+                },
+                Transform(Pose(pose.t, Quaternion())),
+                Scale(Vector3(1.45f + index * 0.22f, 0.045f, 1.45f + index * 0.22f)),
+                Visible(true)
+            ))
+        }
+    }
+
+    private fun updateMindKit() {
+        val core = mindCore ?: return
+        val elapsed = (SystemClock.uptimeMillis() - mindStartedAt).toFloat() / 1000f
+        val current = core.getComponent<Transform>().transform
+        val target = frontPose(0f, 1.55f)
+        val next = current.lerp(target, 0.045f)
+        core.setComponent(Transform(next))
+        val pulse = 1f + 0.12f * kotlin.math.sin(elapsed * 2.6f)
+        core.setComponent(Scale(Vector3(pulse)))
+        mindHalos.forEachIndexed { index, halo ->
+            val bob = 0.02f * kotlin.math.sin(elapsed * 1.7f + index)
+            halo.setComponent(Transform(Pose(Vector3(next.t.x, next.t.y + bob, next.t.z), Quaternion())))
+        }
+        mindNodes.forEachIndexed { index, node ->
+            val phase = elapsed * (0.8f + index * 0.08f) + index * (Math.PI.toFloat() * 2f / mindNodes.size)
+            val radius = 0.28f + 0.025f * kotlin.math.sin(elapsed * 1.4f + index)
+            val height = 0.06f * kotlin.math.sin(elapsed * 1.9f + index * 0.7f)
+            node.setComponent(Transform(Pose(Vector3(
+                next.t.x + kotlin.math.cos(phase) * radius,
+                next.t.y + height,
+                next.t.z + kotlin.math.sin(phase) * radius
+            ), Quaternion())))
+        }
     }
     private fun changeRoom(next: MRUKRoom?) {
         // Do not persist unlocalized transforms, and do not show one room's conversations in another.
@@ -597,7 +680,12 @@ class RoomActivity : AppSystemActivity() {
         windows.values.toList().forEach { destroyPanel(it) }; windows.clear()
         super.onSpatialShutdown()
     }
-    override fun onDestroy() { documentIo.shutdownNow(); runCatching { unregisterReceiver(events) }; super.onDestroy() }
+    override fun onDestroy() {
+        mindCore?.destroy(); mindCore = null
+        mindNodes.forEach { it.destroy() }; mindNodes.clear()
+        mindHalos.forEach { it.destroy() }; mindHalos.clear()
+        documentIo.shutdownNow(); runCatching { unregisterReceiver(events) }; super.onDestroy()
+    }
     companion object {
         private const val MANAGER = 7200
         private const val CHAT_BASE = 7300

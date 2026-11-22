@@ -1,14 +1,14 @@
 # Latest Quest 3 development build
 
-[Download Luma Spatial 0.5.3 development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/luma-roomless-startup/downloads/Luma-Spatial-0.5.3-dev.apk)
+[Download Luma Mind Kit 0.6.0 development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/dev/luma-mind-kit/downloads/Luma-Mind-Kit-0.6.0-dev.apk)
 
-This build opens the redesigned workspace menu and an Assistant panel without waiting for room recognition. It also includes a separate **Luma Chat** standard-panel launcher and an experimental **Voice** button for ChatGPT's signed-in website voice control. **Speak** remains reviewed dictation. Physical Quest rendering, sign-in and voice acceptance remain pending.
+This build is the active Luma Mind Kit development line. It opens the redesigned workspace menu and an Assistant panel without waiting for room recognition, renders its panels as curved 3D mesh surfaces, and adds an animated spatial Mind Core that stays available before room recognition. It also includes a separate **Luma Chat** standard-panel launcher and an experimental **Voice** button for ChatGPT's signed-in website voice control. **Speak** remains reviewed dictation. Physical Quest rendering, sign-in and voice acceptance remain pending.
 
-The 0.5.3 development APK has a different debug signing certificate from 0.5.0. Since you approved a fresh install, export any useful room layouts first, then uninstall the old package and install this APK from your computer. Uninstalling clears Luma's local layouts and embedded sign-in, but not your ChatGPT account conversations.
+The 0.6.0 development APK has a different debug signing certificate from earlier builds. Since you approved a fresh install, export any useful room layouts first, then uninstall the old package and install this APK from your computer. Uninstalling clears Luma's local layouts and embedded sign-in, but not your ChatGPT account conversations.
 
 ```sh
 adb uninstall com.metamanning.spatial
-adb install Luma-Spatial-0.5.3-dev.apk
+adb install Luma-Mind-Kit-0.6.0-dev.apk
 ```
 
 You can also install the downloaded APK with Meta Quest Developer Hub. Complete the Quest Guardian boundary setup on the headset, then open **Luma** under Unknown Sources. Copying an APK to headset storage does not install it. See [checksums](SHA256SUMS). This is a development branch artifact, not a certified release.

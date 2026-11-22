@@ -1,8 +1,8 @@
 # Luma — Your meta assistant
 
-[Download the latest spatial APK: 0.5.3 development build](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/work/luma-roomless-startup/downloads/Luma-Spatial-0.5.3-dev.apk)
+[Download the Luma Mind Kit 0.6.0 development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/dev/luma-mind-kit/downloads/Luma-Mind-Kit-0.6.0-dev.apk)
 
-Assistant, Browser and HTML Widget panels in a room-based Quest 3 workspace. Use your own ChatGPT account; account mode requires no API key or separate AI backend. Widgets can come from an AI reply, a built-in template, pasted HTML or an imported file.
+Assistant, Browser and HTML Widget panels in a room-based Quest 3 workspace, with curved mesh-rendered surfaces and an animated spatial Mind Core. Use your own ChatGPT account; account mode requires no API key or separate AI backend. Widgets can come from an AI reply, a built-in template, pasted HTML or an imported file.
 
 - Luma role briefing, with per-window preferences, visible draft review and honest capability boundaries.
 - Up to six windows, with placement presets, mapped-surface placement, resize, lock, follow, focus, hide/show, recall and closed-window recovery.

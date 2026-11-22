@@ -1,4 +1,4 @@
-# Metamanning Spatial — development build, verification pending
+# Luma Mind Kit — 0.6.0 spatial development build, verification pending
 
 This is the Quest 3 immersive implementation. It is separate from the earlier 2D companion and has a different application ID (`com.metamanning.spatial`). **It is not a finished or hardware-verified release.** The previously uploaded 0.2.0 APK does not contain this workspace.
 
@@ -6,7 +6,7 @@ This is the Quest 3 immersive implementation. It is separate from the earlier 2D
 
 See the [0.4 user guide](../../docs/METAMANNING_04_GUIDE.md) for the browser, HTML editor/templates, AI widget creation and closed-window recovery.
 
-The 0.5.3 development source opens the redesigned workspace menu and an Assistant panel immediately. If room recognition is unavailable, the panels remain usable in a temporary tracking-space workspace; room-specific saving and recovery become available after a room is recognized. The menu stays visible and can be recentered. This startup change has compiled and passed local tests, but has not yet been checked on a Quest. The downloadable 0.5.0 APK predates this change.
+The 0.6.0 development source opens the redesigned workspace menu and an Assistant panel immediately. The manager, Assistant, Browser and Widget surfaces use Meta's mesh-rendered cylindrical panel mode, so they curve through the user's space instead of presenting as flat 2D cards. An animated procedural Mind Core with orbiting nodes provides a persistent spatial focal point before room recognition. If room recognition is unavailable, the panels remain usable in a temporary tracking-space workspace; room-specific saving and recovery become available after a room is recognized. The menu stays visible and can be recentered.
 
 The same APK also exposes **Luma Chat** under Unknown Sources. It opens the existing account-based chat in a standard Quest panel, so a user can still open a conversation if the immersive activity fails. It does not provide room placement or spatial widgets.
 
