@@ -1,17 +1,22 @@
 # Latest Quest 3 development build
 
-[Download Luma Mind Kit 0.6.0 development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/dev/luma-mind-kit/downloads/Luma-Mind-Kit-0.6.0-dev.apk)
+[Download Luma Mind Kit 0.6.1 for Quest 3](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/main/downloads/Luma-Mind-Kit-0.6.1-mindkit.apk)
 
-This build is the active Luma Mind Kit development line. It opens the redesigned workspace menu and an Assistant panel without waiting for room recognition, renders its panels as curved 3D mesh surfaces, and adds an animated spatial Mind Core that stays available before room recognition. It also includes a separate **Luma Chat** standard-panel launcher and an experimental **Voice** button for ChatGPT's signed-in website voice control. **Speak** remains reviewed dictation. Physical Quest rendering, sign-in and voice acceptance remain pending.
+This is the current Mind Kit build: curved surfaces, a world-stable 3D core with three animated orbital rings, Mind Inbox, Today, focus/rest modes, comfort options, and the Horizon panel-launch crash fix. It starts without requiring a room scan. Personal tools keep their data when reopened, including without room recognition. Chat, browser, seven widget templates, camera, reviewed dictation, sampled live vision and existing room controls remain available. Physical rendering, hand input, signed-in voice and room relocalization still need headset acceptance.
 
-The 0.6.0 development APK has a different debug signing certificate from earlier builds. Since you approved a fresh install, export any useful room layouts first, then uninstall the old package and install this APK from your computer. Uninstalling clears Luma's local layouts and embedded sign-in, but not your ChatGPT account conversations.
+Install as an update to preserve local layouts, tool data and sign-in. The current computer's crash-fixed build and Mind Kit builds use the same local signing key. Much older downloads may use a different key. If installation reports a signing mismatch, stop and back up first; uninstalling clears local data. Do not uninstall as the default update procedure.
 
 ```sh
-adb uninstall com.metamanning.spatial
-adb install Luma-Mind-Kit-0.6.0-dev.apk
+adb install -r Luma-Mind-Kit-0.6.1-mindkit.apk
 ```
 
 You can also install the downloaded APK with Meta Quest Developer Hub. Complete the Quest Guardian boundary setup on the headset, then open **Luma** under Unknown Sources. Copying an APK to headset storage does not install it. See [checksums](SHA256SUMS). This is a development branch artifact, not a certified release.
+
+Choose **Luma** for the immersive experience. **Luma Chat** is the plain chat fallback. In Luma, **About this build** must show `0.6.1-mindkit`. Camera and microphone permissions are requested when using their features; room permission is requested through room setup.
+
+`main` is the canonical source/download. Earlier `work/*` and `upgrade/*` branches are already represented in its history. The 0.6.0 APK is superseded because it omitted the launch fix and reported the old version internally. Use the link above.
+
+To rebuild on this Windows computer, run `quest-lite/tools/package-spatial.ps1`. Add `-Install` to update one connected, authorized Quest. The script runs launch-metadata regression checks, Android compilation, unit tests and lint, names the APK from its actual version, and prints its checksum. It never uninstalls the app. For the full release check also run `npm --prefix quest-lite run test:browser` and `npm --prefix quest-lite run test:widgets`.
 
 ---
 

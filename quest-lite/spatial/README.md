@@ -1,4 +1,4 @@
-# Luma Mind Kit — 0.6.0 spatial development build, verification pending
+# Luma Mind Kit — 0.6.1 spatial development build
 
 This is the Quest 3 immersive implementation. It is separate from the earlier 2D companion and has a different application ID (`com.metamanning.spatial`). **It is not a finished or hardware-verified release.** The previously uploaded 0.2.0 APK does not contain this workspace.
 
@@ -6,7 +6,9 @@ This is the Quest 3 immersive implementation. It is separate from the earlier 2D
 
 See the [0.4 user guide](../../docs/METAMANNING_04_GUIDE.md) for the browser, HTML editor/templates, AI widget creation and closed-window recovery.
 
-The 0.6.0 development source opens the redesigned workspace menu and an Assistant panel immediately. The manager, Assistant, Browser and Widget surfaces use Meta's mesh-rendered cylindrical panel mode, so they curve through the user's space instead of presenting as flat 2D cards. An animated procedural Mind Core with orbiting nodes provides a persistent spatial focal point before room recognition. If room recognition is unavailable, the panels remain usable in a temporary tracking-space workspace; room-specific saving and recovery become available after a room is recognized. The menu stays visible and can be recentered.
+The 0.6.1 build includes the Horizon activity-launch metadata fix, a versioned download from `main`, and a workspace organized around Talk, Capture and Today. Manager, Assistant, Browser and Widget surfaces use mesh-rendered cylindrical panels. Web content remains surface content; the Mind Core is separate volumetric geometry with three custom bead-ring meshes and orbiting satellites. It stays at its world pose until recentered. Clicking the core recalls the menu. Reduced motion freezes the satellites, and the core can be hidden.
+
+Mind Inbox and Today store bounded data through the existing widget bridge. One-touch personal tools use stable IDs so their state survives closing/reopening and roomless restarts. Focus and Rest are temporary visibility overrides and never overwrite saved hidden-window flags. Rest pauses the panels and stops app camera sharing. Return to workspace restores visibility. Room permission is optional at startup and requested from room controls.
 
 The same APK also exposes **Luma Chat** under Unknown Sources. It opens the existing account-based chat in a standard Quest panel, so a user can still open a conversation if the immersive activity fails. It does not provide room placement or spatial widgets.
 

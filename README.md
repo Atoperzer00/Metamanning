@@ -1,13 +1,17 @@
-# Luma — Your meta assistant
+# Luma Mind Kit
 
-[Download the Luma Mind Kit 0.6.0 development APK](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/dev/luma-mind-kit/downloads/Luma-Mind-Kit-0.6.0-dev.apk)
+[Download Luma Mind Kit 0.6.1 for Quest 3](https://github.com/Atoperzer00/Metamanning/raw/refs/heads/main/downloads/Luma-Mind-Kit-0.6.1-mindkit.apk)
 
 Assistant, Browser and HTML Widget panels in a room-based Quest 3 workspace, with curved mesh-rendered surfaces and an animated spatial Mind Core. Use your own ChatGPT account; account mode requires no API key or separate AI backend. Widgets can come from an AI reply, a built-in template, pasted HTML or an imported file.
+
+Start with **Talk with Luma**, **Capture a thought**, or **Today's one thing**. Focus shows one window; Rest tucks windows away and pauses camera sharing. Return to workspace restores your session. Personal tools save on this headset even before room setup. The teal, amber and violet 3D core stays in place until recentered; Comfort & appearance can freeze or hide it.
+
+**One download path:** `main` contains the current source and the APK linked above. `dev/luma-mind-kit` is the working branch. Older branches and 0.2–0.6.0 APKs are historical builds, not extra features to install. The original 0.6.0 artifact omitted the launch fix; use 0.6.1. See [install and build details](downloads/README.md).
 
 - Luma role briefing, with per-window preferences, visible draft review and honest capability boundaries.
 - Up to six windows, with placement presets, mapped-surface placement, resize, lock, follow, focus, hide/show, recall and closed-window recovery.
 - In-workspace HTTPS browser with navigation, bookmarks, find, uploads and reviewed page-to-assistant drafts.
-- Widget editor, HTML import/export, local state, optional HTTPS networking, and Clock/Notes/Checklist/Focus Timer/Calculator templates.
+- Widget editor, HTML import/export, local state, optional HTTPS networking, and Mind Inbox/Today/Clock/Notes/Checklist/Focus Timer/Calculator templates.
 - Existing keyboard, dictation, camera snapshot, photo upload and configurable sampled-live-vision flows retained.
 - Workspace menu and Assistant open before room recognition; Luma Chat provides a standard-panel fallback. The Voice control attempts to open the signed-in ChatGPT website's voice UI when available.
 
@@ -15,7 +19,7 @@ Assistant, Browser and HTML Widget panels in a room-based Quest 3 workspace, wit
 
 [Luma role and upgrade guide](docs/LUMA_05_GUIDE.md) · [Must-have audit](docs/MUST_HAVE_COVERAGE.md) · [0.5 verification](docs/VERIFICATION_05.md) · [Downloads](downloads/README.md)
 
-Based on [JarvisVR](https://github.com/sumitaich1998/jarvisvr), with its history and license preserved. The native account-based implementation is in `quest-lite/spatial/`; the original Unity/backend foundation remains available. Upstream's original documentation follows.
+Based on [JarvisVR](https://github.com/sumitaich1998/jarvisvr), with its history and license preserved. The native account-based implementation is in `quest-lite/spatial/`; the original Unity/backend foundation remains available. Upstream's original documentation follows and describes a separate Unity/server stack, not additional features bundled in this APK.
 
 ---
 

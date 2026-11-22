@@ -16,12 +16,13 @@ public abstract class WorkspacePanelActivity extends Activity {
     protected WebView web;
     protected String windowId;
     protected boolean hidden, destroyed, resumed;
+    private boolean closingFromWorkspace;
     private static boolean profileReady;
     private final BroadcastReceiver controls = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (!windowId.equals(intent.getStringExtra("window_id"))) return;
             String command = intent.getStringExtra("command");
-            if ("close".equals(command)) finish();
+            if ("close".equals(command)) { closingFromWorkspace = true; finish(); }
             else if ("pause".equals(command)) { hidden = true; if (web != null) web.onPause(); visibilityChanged(false); }
             else if ("resume".equals(command)) { hidden = false; if (web != null) web.onResume(); visibilityChanged(true); }
             else onWorkspaceControl(command, intent);
@@ -56,7 +57,7 @@ public abstract class WorkspacePanelActivity extends Activity {
     @Override protected void onPause() { resumed = false; if (web != null) { web.onPause(); visibilityChanged(false); } super.onPause(); }
     @Override protected void onDestroy() {
         destroyed = true;
-        if (windowId != null) { try { unregisterReceiver(controls); } catch (IllegalArgumentException ignored) {} if (isFinishing()) event("closed", null); }
+        if (windowId != null) { try { unregisterReceiver(controls); } catch (IllegalArgumentException ignored) {} if (isFinishing() && !closingFromWorkspace) event("closed", null); }
         if (web != null) { web.stopLoading(); web.destroy(); }
         super.onDestroy();
     }

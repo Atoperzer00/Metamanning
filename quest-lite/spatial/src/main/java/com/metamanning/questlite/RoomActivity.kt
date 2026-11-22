@@ -35,14 +35,15 @@ class RoomActivity : AppSystemActivity() {
     private val placementHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val documentIo = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var managerEntity: Entity? = null
-    private var mindCore: Entity? = null
-    private val mindNodes = mutableListOf<Entity>()
-    private val mindHalos = mutableListOf<Entity>()
+    private var mindScene: MindScene? = null
     private var mindStartedAt = 0L
     private var controls: LinearLayout? = null
     private var roomStatus: TextView? = null
     private var message = "Luma is starting…"
     private val windows = mutableMapOf<Int, OpenWindow>()
+    private val attention = WorkspaceSession()
+    private var reducedMotion = false
+    private var showCore = true
     private val prefs by lazy { getSharedPreferences("room-workspaces-v1", MODE_PRIVATE) }
     private data class OpenWindow(var saved: WindowLayout, val entity: Entity, var follow: Boolean = false, var wasGrabbed: Boolean = false)
     private val events = object : BroadcastReceiver() {
@@ -101,7 +102,7 @@ class RoomActivity : AppSystemActivity() {
                     data = Uri.parse("metamanning://window/${saved.id}")
                     putExtra("spatial_panel", true); putExtra("window_id", saved.id)
                     putExtra("widget_html", saved.html); putExtra("widget_network", saved.network);
-                    putExtra("window_title", saved.title); putExtra("initial_hidden", saved.hidden); putExtra("initial_url", saved.url)
+                    putExtra("window_title", saved.title); putExtra("initial_hidden", !attention.visible(saved.id, saved.hidden)); putExtra("initial_url", saved.url)
                 }
             }, settingsCreator = {
                 UIPanelSettings(
@@ -134,13 +135,15 @@ class RoomActivity : AppSystemActivity() {
         scene.enablePassthrough(prefs.getBoolean("passthrough", true))
         systemManager.findSystem<LocomotionSystem>().enableLocomotion(false)
         sceneReady = true
+        reducedMotion = prefs.getBoolean("reduced-motion", false)
+        showCore = prefs.getBoolean("show-core", true)
         createMindKit()
         // The manager is dynamic: its position is computed from the current viewer on every recall.
         managerEntity = Entity.create(listOf(Panel(MANAGER), Transform(frontPose(-1.05f, 1.4f)), Grabbable()))
         // Room scanning can take time or be unavailable. Chat must work immediately.
         addWindow("assistant")
         if (checkSelfPermission(SCENE_PERMISSION) == PackageManager.PERMISSION_GRANTED) loadRooms()
-        else requestPermissions(arrayOf(SCENE_PERMISSION), SCENE_REQUEST)
+        else setMessage("Ready when you are. Room setup is optional; your personal tools save on this headset.")
     }
     private fun loadRooms() {
         setMessage("Recognizing your mapped room…")
@@ -159,7 +162,7 @@ class RoomActivity : AppSystemActivity() {
         if (recognized?.anchor?.uuid != room?.anchor?.uuid || recognized?.entity?.id != room?.entity?.id) changeRoom(recognized)
         var released = false
         for (window in windows.values) {
-            if (window.follow && !window.saved.hidden) {
+            if (window.follow && attention.visible(window.saved.id, window.saved.hidden)) {
                 val target = roomLocal(frontPose(0f, 1.3f))
                 val current = window.entity.getComponent<Transform>().transform
                 window.entity.setComponent(Transform(current.lerp(target, 0.08f)))
@@ -171,73 +174,23 @@ class RoomActivity : AppSystemActivity() {
         if (released) saveRoom()
     }
 
-    /**
-     * Luma's spatial identity: a small procedural 3D core with animated orbitals.
-     * The shell remains useful even before a room is recognized, so this is deliberately
-     * head-relative and does not get persisted as a room window.
-     */
+    private fun corePose(): Pose = frontPose(0.9f, 1.8f).also { it.t.y += 0.65f }
+
     private fun createMindKit() {
         mindStartedAt = SystemClock.uptimeMillis()
-        val pose = frontPose(0f, 1.55f)
-        mindCore = Entity.create(listOf(
-            Mesh(Uri.parse("mesh://sphere")), Sphere(0.16f),
-            Material().apply {
-                baseColor = Color4(0.18f, 0.95f, 0.78f, 1f)
-                metallic = 0.45f; roughness = 0.16f
-            },
-            Transform(pose), Scale(Vector3(1f)), Visible(true)
-        ))
-        val colors = arrayOf(
-            Color4(0.45f, 0.75f, 1f, 1f), Color4(0.95f, 0.45f, 0.78f, 1f),
-            Color4(1f, 0.72f, 0.32f, 1f), Color4(0.48f, 0.98f, 0.58f, 1f),
-            Color4(0.68f, 0.52f, 1f, 1f)
-        )
-        repeat(5) { index ->
-            mindNodes += Entity.create(listOf(
-                Mesh(Uri.parse("mesh://sphere")), Sphere(0.035f),
-                Material().apply { baseColor = colors[index] },
-                Transform(Pose(pose.t, Quaternion())), Visible(true)
-            ))
-        }
-        repeat(3) { index ->
-            mindHalos += Entity.create(listOf(
-                Mesh(Uri.parse("mesh://sphere")), Sphere(0.2f),
-                Material().apply {
-                    baseColor = Color4(0.18f, 0.9f, 0.78f, 0.13f)
-                    unlit = true
-                },
-                Transform(Pose(pose.t, Quaternion())),
-                Scale(Vector3(1.45f + index * 0.22f, 0.045f, 1.45f + index * 0.22f)),
-                Visible(true)
-            ))
-        }
+        mindScene?.destroy()
+        val next = MindScene(systemManager) { recallManager() }
+        runCatching { next.create(corePose()); next.setVisible(showCore); mindScene = next }
+            .onFailure { next.destroy(); mindScene = null; setMessage("Workspace ready. The 3D core could not be loaded.") }
     }
 
     private fun updateMindKit() {
-        val core = mindCore ?: return
         val elapsed = (SystemClock.uptimeMillis() - mindStartedAt).toFloat() / 1000f
-        val current = core.getComponent<Transform>().transform
-        val target = frontPose(0f, 1.55f)
-        val next = current.lerp(target, 0.045f)
-        core.setComponent(Transform(next))
-        val pulse = 1f + 0.12f * kotlin.math.sin(elapsed * 2.6f)
-        core.setComponent(Scale(Vector3(pulse)))
-        mindHalos.forEachIndexed { index, halo ->
-            val bob = 0.02f * kotlin.math.sin(elapsed * 1.7f + index)
-            halo.setComponent(Transform(Pose(Vector3(next.t.x, next.t.y + bob, next.t.z), Quaternion())))
-        }
-        mindNodes.forEachIndexed { index, node ->
-            val phase = elapsed * (0.8f + index * 0.08f) + index * (Math.PI.toFloat() * 2f / mindNodes.size)
-            val radius = 0.28f + 0.025f * kotlin.math.sin(elapsed * 1.4f + index)
-            val height = 0.06f * kotlin.math.sin(elapsed * 1.9f + index * 0.7f)
-            node.setComponent(Transform(Pose(Vector3(
-                next.t.x + kotlin.math.cos(phase) * radius,
-                next.t.y + height,
-                next.t.z + kotlin.math.sin(phase) * radius
-            ), Quaternion())))
-        }
+        mindScene?.setVisible(showCore)
+        mindScene?.update(elapsed, reducedMotion || attention.resting)
     }
     private fun changeRoom(next: MRUKRoom?) {
+        attention.forgetFocus()
         // Do not persist unlocalized transforms, and do not show one room's conversations in another.
         val temporary = if (room == null && next != null) windows.values.map { window ->
             val pose = snapshot(window)
@@ -247,7 +200,7 @@ class RoomActivity : AppSystemActivity() {
         windows.values.toList().forEach { destroyPanel(it) }; windows.clear()
         room = next; roomSaveBlocked = false
         if (next == null) {
-            addWindow("assistant")
+            addWindow("assistant", reveal = false)
             setMessage("Temporary workspace is ready. Saved room windows return when that room is recognized.")
             refreshControls(); return
         }
@@ -257,12 +210,12 @@ class RoomActivity : AppSystemActivity() {
             runCatching { RoomLayoutCodec.decode(saved, roomId) }.onSuccess { layout ->
                 roomName = layout.name
                 layout.windows.forEach { createWindow(it) }
-                if (windows.isEmpty()) addWindow("assistant")
+                if (windows.isEmpty()) addWindow("assistant", reveal = false)
                 setMessage(if (layout.windows.isEmpty()) "$roomName recognized. Your workspace is ready."
                     else "$roomName · restored ${layout.windows.size} room windows")
             }.onFailure {
                 roomSaveBlocked = true; roomName = prefs.getString("name.$roomId", "Room") ?: "Room"
-                addWindow("assistant")
+                addWindow("assistant", reveal = false)
                 setMessage("Saved layout could not be restored. It has been preserved. Import a backup or explicitly reset this room.")
             }
         } else {
@@ -278,7 +231,7 @@ class RoomActivity : AppSystemActivity() {
                 saveRoom()
                 setMessage("$roomName recognized. Your workspace is now saved in this room.")
             } else {
-                addWindow("assistant")
+                addWindow("assistant", reveal = false)
                 setMessage("$roomName recognized. Your workspace is ready and saved in this room.")
             }
         }
@@ -307,7 +260,7 @@ class RoomActivity : AppSystemActivity() {
             val titles = Array(templates.length() + 1) { index -> if (index == 0) "Blank / paste HTML" else templates.getJSONObject(index - 1).getString("title") }
             AlertDialog.Builder(this).setTitle("Create an HTML widget").setItems(titles) { _, which ->
                 val html = if (which == 0) "<h1>New widget</h1><p>Choose Edit to paste HTML, or Options to import an HTML file.</p>" else templates.getJSONObject(which - 1).getString("html")
-                addWindow("widget", widgetHtml = html)
+                addWindow("widget", widgetHtml = html, requestedTitle = if (which == 0) "My widget" else titles[which])
             }.show()
         }.onFailure { setMessage("Widget templates could not be loaded.") }
     }
@@ -315,7 +268,7 @@ class RoomActivity : AppSystemActivity() {
         val assistants = windows.values.filter { it.saved.kind == "assistant" }
         if (assistants.isEmpty()) { setMessage("Open an Assistant window first, then use Ask AI again."); return }
         fun deliver(window: OpenWindow) {
-            window.saved = window.saved.copy(hidden = false); window.entity.setComponent(Visible(true)); control(window, "resume")
+            window.saved = window.saved.copy(hidden = false); attention.restore(); applyAttention()
             sendBroadcast(Intent("$packageName.WORKSPACE_CONTROL").setPackage(packageName).putExtra("window_id", window.saved.id).putExtra("command", "draft").putExtra("prompt", prompt))
             setMessage("Page excerpt offered to ${window.saved.title}. Review its draft before sending."); saveRoom(); refreshControls()
         }
@@ -332,9 +285,13 @@ class RoomActivity : AppSystemActivity() {
             override fun onStopTrackingTouch(bar: SeekBar?) {}
         })
         val passthrough = CheckBox(this).apply { text = "Show my surroundings (passthrough)"; isChecked = prefs.getBoolean("passthrough", true) }; column.addView(passthrough)
+        val motion = CheckBox(this).apply { text = "Still core · reduce animation"; isChecked = reducedMotion }; column.addView(motion)
+        val core = CheckBox(this).apply { text = "Show the 3D Mind Core"; isChecked = showCore }; column.addView(core)
         AlertDialog.Builder(this).setTitle("Workspace options").setView(column).setPositiveButton("Save") { _, _ ->
             if (limit.progress + 1 < windows.size || windows.keys.any { it > limit.progress }) { setMessage("Close higher-numbered windows before lowering the window limit."); return@setPositiveButton }
-            prefs.edit().putInt("window-limit", limit.progress + 1).putBoolean("passthrough", passthrough.isChecked).apply()
+            reducedMotion = motion.isChecked; showCore = core.isChecked
+            prefs.edit().putInt("window-limit", limit.progress + 1).putBoolean("passthrough", passthrough.isChecked)
+                .putBoolean("reduced-motion", reducedMotion).putBoolean("show-core", showCore).apply()
             scene.enablePassthrough(passthrough.isChecked); setMessage("Workspace options saved.")
         }.setNegativeButton("Cancel", null).show()
     }
@@ -343,13 +300,13 @@ class RoomActivity : AppSystemActivity() {
         // Allocate the record before Panel creation; the intent creator reads the stable slot record.
         val entity = Entity.create(mutableListOf(Transform(Pose(Vector3(saved.position[0], saved.position[1], saved.position[2]),
             Quaternion(saved.rotation[0], saved.rotation[1], saved.rotation[2], saved.rotation[3]))),
-            Scale(Vector3(saved.size)), Grabbable(enabled = !saved.locked), Visible(!saved.hidden)).apply {
+            Scale(Vector3(saved.size)), Grabbable(enabled = !saved.locked), Visible(attention.visible(saved.id, saved.hidden))).apply {
             if (parent != null) add(TransformParent(parent))
         })
         windows[saved.slot] = OpenWindow(saved, entity)
         entity.setComponent(Panel(CHAT_BASE + saved.slot))
     }
-    private fun addWindow(kind: String = "assistant", requestedUrl: String = "https://chatgpt.com/", widgetHtml: String = "") {
+    private fun addWindow(kind: String = "assistant", requestedUrl: String = "https://chatgpt.com/", widgetHtml: String = "", requestedTitle: String? = null, stableId: String? = null, reveal: Boolean = true) {
         val limit = prefs.getInt("window-limit", RoomLayoutCodec.MAX_WINDOWS).coerceIn(1, RoomLayoutCodec.MAX_WINDOWS)
         val slot = (0 until limit).firstOrNull { !windows.containsKey(it) }
         if (slot == null) { setMessage("Window limit reached. Close one or increase the limit in Workspace options."); return }
@@ -358,10 +315,59 @@ class RoomActivity : AppSystemActivity() {
         val placed = frontPose(offsets[slot], if (slot < 3) 1.5f else 2f)
         if (slot == 5) placed.t.y += 0.95f
         val pose = roomLocal(placed)
-        val title = when (kind) { "browser" -> "Browser ${slot + 1}"; "widget" -> "Widget ${slot + 1}"; else -> "Conversation ${slot + 1}" }
-        createWindow(WindowLayout(slot = slot, title = title, url = if (kind == "browser") requestedUrl else "https://chatgpt.com/", kind = kind, html = widgetHtml, position = listOf(pose.t.x, pose.t.y, pose.t.z), rotation = listOf(pose.q.w, pose.q.x, pose.q.y, pose.q.z)))
+        if (reveal) attention.restore()
+        applyAttention()
+        val title = requestedTitle ?: when (kind) { "browser" -> "Browser ${slot + 1}"; "widget" -> "Widget ${slot + 1}"; else -> "Conversation ${slot + 1}" }
+        createWindow(WindowLayout(id = stableId ?: java.util.UUID.randomUUID().toString(), slot = slot, title = title, url = if (kind == "browser") requestedUrl else "https://chatgpt.com/", kind = kind, html = widgetHtml, position = listOf(pose.t.x, pose.t.y, pose.t.z), rotation = listOf(pose.q.w, pose.q.x, pose.q.y, pose.q.z)))
         saveRoom(); refreshControls()
-        if (room == null) setMessage("Temporary workspace ready. Set up a room when you want windows to return here later.")
+        if (room == null) setMessage("Ready. Personal tool data saves here; room setup remembers window positions.")
+    }
+
+    private fun applyAttention() {
+        windows.values.forEach { window ->
+            val visible = attention.visible(window.saved.id, window.saved.hidden)
+            window.entity.setComponent(Visible(visible))
+            control(window, if (visible && active) "resume" else "pause")
+        }
+        refreshControls()
+    }
+
+    private fun focusWindow(window: OpenWindow) {
+        window.saved = window.saved.copy(hidden = false)
+        window.follow = false
+        window.entity.setComponent(Transform(roomLocal(frontPose(0f, 1.5f))))
+        window.entity.setComponent(Grabbable(enabled = !window.saved.locked))
+        attention.focus(window.saved.id); applyAttention()
+        saveRoom()
+        setMessage("Just ${window.saved.title}. Return to workspace brings your other windows back.")
+    }
+
+    private fun openPersonalTool(title: String) {
+        val id = WorkspaceSession.kitId(title)
+        windows.values.firstOrNull { it.saved.id == id }?.let { focusWindow(it); return }
+        runCatching {
+            val roomId = room?.anchor?.uuid?.toString()
+            val archived = roomId?.let { prefs.getString("archive.$it", null) }?.let { RoomLayoutCodec.decode(it, roomId!!) }
+            val prior = archived?.windows?.firstOrNull { it.id == id }
+            if (prior != null) {
+                restoreArchived(archived, prior)?.let { focusWindow(it) }
+                return
+            }
+            val templates = assets.open("widget-templates.json").bufferedReader().use { org.json.JSONArray(it.readText()) }
+            val template = (0 until templates.length()).map { templates.getJSONObject(it) }.first { it.getString("title") == title }
+            addWindow("widget", widgetHtml = template.getString("html"), requestedTitle = title, stableId = id)
+            windows.values.firstOrNull { it.saved.id == id }?.let { focusWindow(it) }
+        }.onFailure { setMessage("Could not open $title. Your saved data is still on this headset.") }
+    }
+
+    private fun openConversation() {
+        val existing = windows.values.firstOrNull { it.saved.kind == "assistant" }
+        if (existing == null) addWindow() else focusWindow(existing)
+    }
+
+    private fun returnToWorkspace() {
+        attention.restore(); applyAttention()
+        setMessage("Your workspace is back. Hidden windows stay hidden until you choose Show.")
     }
     private fun snapshot(window: OpenWindow): WindowLayout {
         val pose = window.entity.getComponent<Transform>().transform
@@ -398,7 +404,9 @@ class RoomActivity : AppSystemActivity() {
             }
             if (archiveResult.isFailure) { setMessage("This window could not be archived. Its layout has been preserved."); return }
         }
-        windows.remove(slot); destroyPanel(window); saveRoom(); refreshControls()
+        windows.remove(slot); destroyPanel(window)
+        if (attention.focusedId == window.saved.id) { attention.forgetFocus(); applyAttention() }
+        saveRoom(); refreshControls()
     }
     private fun restoreClosedWindow() {
         val id = room?.anchor?.uuid?.toString() ?: return
@@ -409,20 +417,29 @@ class RoomActivity : AppSystemActivity() {
             if (layout.windows.isEmpty()) { setMessage("No recently closed windows in this room."); return }
             AlertDialog.Builder(this).setTitle("Recently closed in $roomName").setItems(layout.windows.map { it.title }.toTypedArray()) { _, index ->
                 if (room?.anchor?.uuid?.toString() != id) { setMessage("Return to the same room to restore this window."); return@setItems }
-                val limit = prefs.getInt("window-limit", RoomLayoutCodec.MAX_WINDOWS).coerceIn(1, RoomLayoutCodec.MAX_WINDOWS)
-                val slot = (0 until limit).firstOrNull { !windows.containsKey(it) }
-                if (slot == null) { setMessage("Close a window or increase the window limit first."); return@setItems }
                 val saved = layout.windows[index]
                 if (windows.values.any { it.saved.id == saved.id }) return@setItems
-                createWindow(saved.copy(slot = slot, hidden = false))
-                val remaining = layout.copy(windows = layout.windows.filter { it.id != saved.id }.mapIndexed { i, item -> item.copy(slot = i) })
-                prefs.edit().putString("archive.$id", RoomLayoutCodec.encode(remaining)).apply(); saveRoom(); refreshControls()
+                restoreArchived(layout, saved)
             }.show()
         }.onFailure { setMessage("Closed-window archive could not be read.") }
     }
+    private fun restoreArchived(layout: RoomLayout, saved: WindowLayout): OpenWindow? {
+        val limit = prefs.getInt("window-limit", RoomLayoutCodec.MAX_WINDOWS).coerceIn(1, RoomLayoutCodec.MAX_WINDOWS)
+        val slot = (0 until limit).firstOrNull { !windows.containsKey(it) }
+        if (slot == null) { setMessage("Close a window or increase the window limit first."); return null }
+        attention.forgetFocus()
+        createWindow(saved.copy(slot = slot, hidden = false))
+        if (saveRoom()) {
+            val remaining = layout.copy(windows = layout.windows.filter { it.id != saved.id }.mapIndexed { i, item -> item.copy(slot = i) })
+            prefs.edit().putString("archive.${layout.roomId}", RoomLayoutCodec.encode(remaining)).apply()
+        } else setMessage("Opened for this session. The archived copy is kept until this room can save again.")
+        applyAttention()
+        return windows[slot]
+    }
     private fun recallManager() {
-        managerEntity?.setComponent(Transform(frontPose(0f, 0.9f)))
+        managerEntity?.setComponent(Transform(frontPose(-1.05f, 1.4f)))
         managerEntity?.setComponent(Visible(true))
+        mindScene?.recenter(corePose())
     }
     private fun setMessage(value: String) { message = value; roomStatus?.text = value }
     private fun buildControls(context: Context): View {
@@ -437,11 +454,11 @@ class RoomActivity : AppSystemActivity() {
             background = ShellStyle.panel(context, "#152536", "#315266", 20)
         }
         welcome.addView(TextView(context).apply {
-            text = "YOUR WORKSPACE"; textSize = 12f; letterSpacing = 0.12f
+            text = "LUMA MIND KIT"; textSize = 12f; letterSpacing = 0.12f
             setTextColor(Color.parseColor("#91F4D4"))
         })
         welcome.addView(TextView(context).apply {
-            text = "Start anywhere."; textSize = 27f; setTextColor(Color.WHITE)
+            text = "A little space to think."; textSize = 27f; setTextColor(Color.WHITE)
             setTypeface(null, android.graphics.Typeface.BOLD)
             setPadding(0, gap, 0, gap)
         })
@@ -471,13 +488,21 @@ class RoomActivity : AppSystemActivity() {
             }) }
             column.addView(line)
         }
-        section("Open", "Floating panels you can move around you")
+        section("Start here", "One thought. One next step. Your pace.")
+        row("Talk with Luma" to { openConversation() })
+        row("Capture a thought" to { openPersonalTool("Mind Inbox") }, "Today's one thing" to { openPersonalTool("Today") })
+        row("Focus timer" to { openPersonalTool("Focus timer") }, "Rest a moment" to {
+            attention.rest(); applyAttention(); setMessage("Resting. Camera sharing stopped; windows are tucked away. End any website voice call before taking a break.")
+        })
+        row("Return to workspace" to { returnToWorkspace() })
+        section("Make room", "Open another conversation, a website or a local tool")
         row("+ Conversation" to { addWindow() })
         row("Browser" to { browserDialog() }, "HTML widget" to { chooseWidget() })
         section("Your windows", "Focus, move, resize or bring a panel back")
         controls = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         column.addView(controls)
         row("Bring windows here" to {
+            attention.restore()
             val ordered = windows.values.sortedBy { it.saved.slot }
             val widths = ordered.map { 1.1f * it.saved.size }
             var left = -(widths.sum() + (ordered.size - 1).coerceAtLeast(0) * 0.12f) / 2f
@@ -488,6 +513,9 @@ class RoomActivity : AppSystemActivity() {
                 window.entity.setComponent(Visible(true)); window.entity.setComponent(Grabbable(enabled = !window.saved.locked)); control(window, "resume")
             }; saveRoom(); refreshControls()
         }, "Recenter menu" to { recallManager() })
+        val roomToggle = Button(context).apply { text = "Room setup & more"; ShellStyle.button(context, this, text.toString()) }
+        column.addView(roomToggle, LinearLayout.LayoutParams(-1, ShellStyle.dp(context, 58)))
+        val roomOptionsStart = column.childCount
         section("Room & layout", "Optional: remember placements in this room")
         row("Set up room" to { mruk.requestSceneCapture().whenComplete { _, _ -> runOnUiThread { loadRooms() } } }, "Reload room" to { requestRoomPermission() })
         row("Workspace options" to { workspaceOptions() }, "Save room" to {
@@ -505,6 +533,18 @@ class RoomActivity : AppSystemActivity() {
         row("Reset this room" to {
             if (room == null) setMessage("No recognized room to reset.") else confirmReset()
         })
+        val advancedViews = (roomOptionsStart until column.childCount).map { column.getChildAt(it) }
+        advancedViews.forEach { it.visibility = View.GONE }
+        roomToggle.setOnClickListener {
+            val expand = advancedViews.first().visibility == View.GONE
+            advancedViews.forEach { it.visibility = if (expand) View.VISIBLE else View.GONE }
+            roomToggle.text = if (expand) "Close room options" else "Room setup & more"
+        }
+        row("Comfort & appearance" to { workspaceOptions() }, "About this build" to {
+            AlertDialog.Builder(this).setTitle("Luma Mind Kit ${BuildConfig.VERSION_NAME}")
+                .setMessage("Immersive workspace · curved surfaces · 3D Mind Core\n\nPersonal tools save locally on this headset. The Assistant uses your signed-in ChatGPT website. Room placement needs room setup.\n\nThis app does not inherit this coding chat's memory or tools. Camera and microphone sharing start only through their controls.\n\nLatest download: github.com/Atoperzer00/Metamanning")
+                .setPositiveButton("Done", null).show()
+        })
         scroll.addView(column); refreshControls(); return scroll
     }
     private fun refreshControls() {
@@ -517,7 +557,7 @@ class RoomActivity : AppSystemActivity() {
                 setPadding(ShellStyle.dp(context, 12), ShellStyle.dp(context, 10), ShellStyle.dp(context, 12), ShellStyle.dp(context, 12))
                 background = ShellStyle.panel(context, "#121E2D", "#2C4054", 16)
             }
-            val state = if (window.follow) "Follows you" else if (window.saved.hidden) "Hidden" else if (window.saved.locked) "Pinned" else if (room == null) "Temporary · movable" else "Room position · movable"
+            val state = if (!attention.visible(window.saved.id, window.saved.hidden)) "Tucked away" else if (window.follow) "Follows you" else if (window.saved.locked) "Pinned" else if (room == null) "Movable" else "Saved in this room"
             line.addView(TextView(context).apply {
                 text = window.saved.title; textSize = 18f; setTextColor(Color.WHITE)
                 setTypeface(null, android.graphics.Typeface.BOLD)
@@ -538,17 +578,14 @@ class RoomActivity : AppSystemActivity() {
                 })
             }
             action(top, "Focus") {
-                windows.values.forEach { other ->
-                    val visible = other.saved.id == window.saved.id
-                    other.saved = other.saved.copy(hidden = !visible); other.entity.setComponent(Visible(visible))
-                    control(other, if (visible) "resume" else "pause")
-                }; saveRoom(); refreshControls()
+                focusWindow(window)
             }
             action(top, "Place") { placementOptions(window) }
             action(top, "Size") { sizeOptions(window) }
-            action(bottom, if (window.saved.hidden) "Show" else "Hide") {
-                window.saved = window.saved.copy(hidden = !window.saved.hidden); window.entity.setComponent(Visible(!window.saved.hidden))
-                control(window, if (window.saved.hidden) "pause" else "resume"); saveRoom(); refreshControls()
+            action(bottom, if (attention.visible(window.saved.id, window.saved.hidden)) "Hide" else "Show") {
+                window.saved = window.saved.copy(hidden = attention.visible(window.saved.id, window.saved.hidden))
+                if (!window.saved.hidden) attention.restore()
+                applyAttention(); saveRoom()
             }
             action(bottom, "Rename") { editName(window.saved.title, "Window name") { window.saved = window.saved.copy(title = it); control(window, "rename"); saveRoom(); refreshControls() } }
             action(bottom, "Close") { closeWindow(window.saved.slot) }
@@ -656,6 +693,7 @@ class RoomActivity : AppSystemActivity() {
                             .setPositiveButton("Restore") { _, _ ->
                                 if (room?.anchor?.uuid?.toString() != expectedRoom) { setMessage("Room changed. Import again in the correct room."); return@setPositiveButton }
                                 windows.values.toList().forEach { destroyPanel(it) }; windows.clear(); roomName = layout.name; roomSaveBlocked = false
+                                attention.forgetFocus()
                                 layout.windows.forEach { createWindow(it) }; saveRoom(); refreshControls()
                             }.setNegativeButton("Cancel", null).show()
                     }
@@ -672,18 +710,20 @@ class RoomActivity : AppSystemActivity() {
         super.onResume()
         active = true
         if (sceneReady) recallManager()
-        windows.values.filter { !it.saved.hidden }.forEach { control(it, "resume") }
+        windows.values.filter { attention.visible(it.saved.id, it.saved.hidden) }.forEach { control(it, "resume") }
     }
     override fun onPause() { active = false; placementHandler.removeCallbacksAndMessages(null); saveRoom(); windows.values.forEach { control(it, "pause") }; super.onPause() }
     override fun onSpatialShutdown() {
         saveRoom(); shuttingDown = true; sceneReady = false
         windows.values.toList().forEach { destroyPanel(it) }; windows.clear()
+        mindScene?.destroy(); mindScene = null
+        managerEntity?.destroy(); managerEntity = null
         super.onSpatialShutdown()
     }
     override fun onDestroy() {
-        mindCore?.destroy(); mindCore = null
-        mindNodes.forEach { it.destroy() }; mindNodes.clear()
-        mindHalos.forEach { it.destroy() }; mindHalos.clear()
+        shuttingDown = true; sceneReady = false; active = false
+        placementHandler.removeCallbacksAndMessages(null)
+        mindScene?.destroy(); mindScene = null
         documentIo.shutdownNow(); runCatching { unregisterReceiver(events) }; super.onDestroy()
     }
     companion object {

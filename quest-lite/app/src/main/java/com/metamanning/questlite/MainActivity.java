@@ -63,6 +63,7 @@ public final class MainActivity extends Activity {
     private int capturePurpose, sentFrames, liveGeneration;
     private long captureDeadline;
     private boolean panelHidden;
+    private boolean closingFromWorkspace;
     private String liveUrl;
     private int intervalSeconds = 15, frameLimit = 20, textZoom = 100;
     private String livePrompt = "Describe important changes in this latest camera view. Keep the answer brief.";
@@ -71,8 +72,12 @@ public final class MainActivity extends Activity {
             String id = windowId();
             if (id == null || !id.equals(intent.getStringExtra("window_id"))) return;
             String command = intent.getStringExtra("command");
-            if ("close".equals(command)) { stopLive(); camera.close(); finish(); }
-            else if ("pause".equals(command)) { panelHidden = true; stopLive(); camera.close(); web.onPause(); showStatus("Hidden: camera and live sharing stopped."); }
+            if ("close".equals(command)) { closingFromWorkspace = true; stopLive(); camera.close(); finish(); }
+            else if ("pause".equals(command)) {
+                panelHidden = true; stopLive(); camera.close(); web.onPause();
+                if (pendingMic != null) { pendingMic.deny(); pendingMic = null; }
+                showStatus("Hidden: camera and live sharing stopped.");
+            }
             else if ("resume".equals(command)) { panelHidden = false; web.onResume(); }
             else if ("draft".equals(command)) {
                 String prompt = intent.getStringExtra("prompt");
@@ -273,6 +278,7 @@ public final class MainActivity extends Activity {
     }
 
     private void requestMicrophone(PermissionRequest request) {
+        if (panelHidden || destroyed) { request.deny(); return; }
         // Only the official ChatGPT origin may request audio, never video or arbitrary resources.
         if (!"https".equals(request.getOrigin().getScheme()) || !"chatgpt.com".equals(request.getOrigin().getHost())) {
             request.deny(); return;
@@ -293,14 +299,14 @@ public final class MainActivity extends Activity {
     @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] grants) {
         super.onRequestPermissionsResult(code, permissions, grants);
         if (code == CAMERA) {
-            if (cameraAllowed()) chooseCamera();
+            if (!panelHidden && !destroyed && cameraAllowed()) chooseCamera();
             else showStatus("Headset camera permission denied. Photo upload remains available.");
             return;
         }
         if (code != MICROPHONE || pendingMic == null) return;
         PermissionRequest request = pendingMic;
         pendingMic = null;
-        if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED)
+        if (!panelHidden && !destroyed && grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED)
             request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
         else { request.deny(); notice("Microphone denied. Keyboard input is still available."); }
     }
@@ -609,7 +615,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         if (getIntent().getBooleanExtra("spatial_panel", false)) {
             try { unregisterReceiver(workspaceControl); } catch (IllegalArgumentException ignored) {}
-            if (isFinishing()) workspaceEvent("closed", null);
+            if (isFinishing() && !closingFromWorkspace) workspaceEvent("closed", null);
         }
         destroyed = true; stopLive(); camera.close(); imageWorker.shutdownNow();
         finishPhoto(null);
